@@ -1,0 +1,216 @@
+import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
+import { v4 as uuid } from 'uuid';
+
+import { audit, db } from '../db/index.js';
+import { requireAuth } from '../middleware/auth.js';
+import {
+  consumeEnrollToken,
+  generateAgentSecret,
+  generateEnrollToken,
+  hashAgentSecret,
+  requireAgent,
+} from '../services/agentAuth.js';
+import { callWorker } from '../services/workerClient.js';
+
+export const operatorAgentsRouter = Router();   // /api/agents/*  (operator UI)
+export const agentChannelRouter = Router();     // /agent-c2/*    (agent endpoints)
+
+// ─── operator-side, JWT-auth ───────────────────────────────────
+operatorAgentsRouter.use(requireAuth);
+
+operatorAgentsRouter.post('/enroll-token', (req, res) => {
+  const { label } = req.body || {};
+  const { token, expires_at } = generateEnrollToken(req.user.id, label);
+  audit(req.user.id, 'agent_enroll_token', { label, expires_at }, req.ip);
+  res.json({ token, expires_at });
+});
+
+// Static segment must be declared BEFORE /:id catch-all
+operatorAgentsRouter.get('/tasks/:taskId', (req, res) => {
+  const row = db.prepare(`
+    SELECT t.*
+    FROM agent_tasks t JOIN agents a ON a.id = t.agent_id
+    WHERE t.id = ? AND a.user_id = ?
+  `).get(req.params.taskId, req.user.id);
+  if (!row) return res.status(404).json({ error: 'not found' });
+  res.json(row);
+});
+
+operatorAgentsRouter.get('/', (req, res) => {
+  const rows = db.prepare(`
+    SELECT id, hostname, platform, agent_version, internal_ip, external_ip,
+           beacon_count, status, last_seen, created_at
+    FROM agents
+    WHERE user_id = ?
+    ORDER BY datetime(created_at) DESC
+  `).all(req.user.id);
+  res.json({ agents: rows });
+});
+
+operatorAgentsRouter.get('/:id', (req, res) => {
+  const a = db.prepare('SELECT * FROM agents WHERE id = ? AND user_id = ?')
+    .get(req.params.id, req.user.id);
+  if (!a) return res.status(404).json({ error: 'not found' });
+  delete a.secret_hash;
+  res.json(a);
+});
+
+operatorAgentsRouter.post('/:id/kill', (req, res) => {
+  const r = db.prepare('UPDATE agents SET status = "killed" WHERE id = ? AND user_id = ?')
+    .run(req.params.id, req.user.id);
+  if (r.changes === 0) return res.status(404).json({ error: 'not found' });
+  audit(req.user.id, 'agent_kill', { agent_id: req.params.id }, req.ip);
+  res.json({ ok: true });
+});
+
+operatorAgentsRouter.get('/:id/tasks', (req, res) => {
+  const own = db.prepare('SELECT id FROM agents WHERE id = ? AND user_id = ?')
+    .get(req.params.id, req.user.id);
+  if (!own) return res.status(404).json({ error: 'not found' });
+  const rows = db.prepare(`
+    SELECT id, technique_id, test_name, executor, status, exit_code,
+           duration_ms, sent_at, finished_at, created_at
+    FROM agent_tasks
+    WHERE agent_id = ?
+    ORDER BY datetime(created_at) DESC
+    LIMIT 100
+  `).all(req.params.id);
+  res.json({ tasks: rows });
+});
+
+operatorAgentsRouter.post('/:id/tasks', async (req, res, next) => {
+  try {
+    const { technique_id, test_name, timeout_sec } = req.body || {};
+    if (!technique_id || !test_name) {
+      return res.status(400).json({ error: 'technique_id and test_name required' });
+    }
+    const agent = db.prepare('SELECT * FROM agents WHERE id = ? AND user_id = ? AND status = "active"')
+      .get(req.params.id, req.user.id);
+    if (!agent) return res.status(404).json({ error: 'agent not found or killed' });
+
+    // Pull catalog entry from worker — server is the source of truth for the command body.
+    const catalog = await callWorker(`/techniques/${encodeURIComponent(technique_id)}`, null, { method: 'GET' });
+    const test = (catalog.tests || []).find(t => t.name === test_name);
+    if (!test) return res.status(404).json({ error: 'test not in catalog' });
+    if (!test.platforms.includes(agent.platform)) {
+      return res.status(400).json({
+        error: `test platforms ${test.platforms.join(',')} do not match agent platform ${agent.platform}`,
+      });
+    }
+
+    const id = uuid();
+    db.prepare(`
+      INSERT INTO agent_tasks
+        (id, agent_id, created_by, technique_id, test_name, executor, command,
+         cleanup, timeout_sec, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+    `).run(
+      id, agent.id, req.user.id, technique_id, test_name,
+      test.executor, test.command, test.cleanup ?? null,
+      Math.max(1, Math.min(timeout_sec || 15, 60)),
+    );
+    audit(req.user.id, 'agent_task_queue',
+      { agent_id: agent.id, task_id: id, technique_id, test_name }, req.ip);
+    res.json({ task_id: id, agent_id: agent.id, status: 'pending' });
+  } catch (err) { next(err); }
+});
+
+// ─── agent-side, no JWT ─ HTTP-polling C2 channel ──────────────
+const agentLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 600,           // tolerates a beacon every ~5s for an army of agents
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+agentChannelRouter.use(agentLimiter);
+
+// /register — consumes an enrollment token, returns agent_id + agent_secret
+agentChannelRouter.post('/register', (req, res) => {
+  const { enroll_token, hostname, platform, agent_version, internal_ip } = req.body || {};
+  if (!enroll_token) return res.status(400).json({ error: 'enroll_token required' });
+  if (!['linux', 'macos', 'windows'].includes(platform)) {
+    return res.status(400).json({ error: 'platform must be linux|macos|windows' });
+  }
+  const id = 'agt_' + uuid().replace(/-/g, '').slice(0, 16);
+  const tokenRow = consumeEnrollToken(enroll_token, id);
+  if (!tokenRow) return res.status(401).json({ error: 'invalid or expired enroll_token' });
+
+  const secret = generateAgentSecret();
+  const externalIp = req.ip;
+  db.prepare(`
+    INSERT INTO agents
+      (id, user_id, hostname, platform, agent_version,
+       internal_ip, external_ip, secret_hash, last_seen)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `).run(
+    id, tokenRow.user_id, hostname || null, platform,
+    agent_version || null, internal_ip || null, externalIp,
+    hashAgentSecret(secret),
+  );
+  audit(tokenRow.user_id, 'agent_register',
+    { agent_id: id, hostname, platform }, externalIp);
+  res.json({ agent_id: id, agent_secret: secret, beacon_interval_sec: 30 });
+});
+
+agentChannelRouter.post('/beacon', requireAgent, (req, res) => {
+  const updates = db.prepare(`
+    UPDATE agents
+    SET last_seen = datetime('now'),
+        beacon_count = beacon_count + 1
+    WHERE id = ?
+  `);
+  updates.run(req.agent.id);
+
+  // Pull pending tasks
+  const tasks = db.prepare(`
+    SELECT id, technique_id, test_name, executor, command, cleanup, timeout_sec
+    FROM agent_tasks
+    WHERE agent_id = ? AND status = 'pending'
+    ORDER BY datetime(created_at) ASC
+    LIMIT 5
+  `).all(req.agent.id);
+
+  if (tasks.length) {
+    const stmt = db.prepare("UPDATE agent_tasks SET status = 'sent', sent_at = datetime('now') WHERE id = ?");
+    for (const t of tasks) stmt.run(t.id);
+  }
+
+  res.json({
+    server_time: new Date().toISOString(),
+    beacon_interval_sec: 30,
+    tasks,
+  });
+});
+
+agentChannelRouter.post('/result', requireAgent, (req, res) => {
+  const { task_id, exit_code, duration_ms, stdout, stderr, truncated, status } = req.body || {};
+  if (!task_id) return res.status(400).json({ error: 'task_id required' });
+
+  const own = db.prepare('SELECT id FROM agent_tasks WHERE id = ? AND agent_id = ?')
+    .get(task_id, req.agent.id);
+  if (!own) return res.status(404).json({ error: 'task not found for this agent' });
+
+  const finalStatus = ['done', 'error', 'timeout'].includes(status) ? status : 'done';
+  const cap = 32 * 1024;
+  const stdoutS = (stdout || '').slice(0, cap);
+  const stderrS = (stderr || '').slice(0, cap);
+
+  db.prepare(`
+    UPDATE agent_tasks
+    SET status = ?, exit_code = ?, duration_ms = ?,
+        stdout = ?, stderr = ?, truncated = ?, finished_at = datetime('now')
+    WHERE id = ?
+  `).run(
+    finalStatus,
+    Number.isInteger(exit_code) ? exit_code : null,
+    Number.isInteger(duration_ms) ? duration_ms : null,
+    stdoutS,
+    stderrS,
+    truncated ? 1 : 0,
+    task_id,
+  );
+  audit(null, 'agent_task_result',
+    { agent_id: req.agent.id, task_id, status: finalStatus, exit_code }, req.ip);
+  res.json({ ok: true });
+});

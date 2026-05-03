@@ -1,0 +1,10 @@
+.env
+node_modules/
+__pycache__/
+*.pyc
+data/csp.sqlite
+data/csp.sqlite-journal
+data/artifacts/*
+!data/artifacts/.gitkeep
+.DS_Store
+*.log

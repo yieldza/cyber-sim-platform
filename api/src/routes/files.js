@@ -1,0 +1,135 @@
+import { Router } from 'express';
+import { requireAuth } from '../middleware/auth.js';
+import { audit } from '../db/index.js';
+import { callWorker } from '../services/workerClient.js';
+import {
+  saveArtifact,
+  getArtifact,
+  listArtifacts,
+} from '../services/artifactStore.js';
+
+export const filesRouter = Router();
+
+filesRouter.use(requireAuth);
+
+filesRouter.get('/', (req, res) => {
+  res.json({ artifacts: listArtifacts(req.user.id) });
+});
+
+filesRouter.post('/generate', async (req, res, next) => {
+  try {
+    const { file_type, note } = req.body || {};
+    if (!file_type) return res.status(400).json({ error: 'file_type required' });
+    const data = await callWorker('/generate', { file_type, note });
+    const saved = saveArtifact({
+      userId: req.user.id,
+      fileType: file_type,
+      dataB64: data.data_b64,
+      hashes: data.hashes,
+      size: data.size,
+      sourceOp: 'generate',
+      metadata: { note: note || null },
+    });
+    audit(req.user.id, 'generate', { id: saved.id, file_type, sha256: data.hashes.sha256 }, req.ip);
+    res.json({ id: saved.id, file_type, size: data.size, hashes: data.hashes });
+  } catch (err) {
+    next(err);
+  }
+});
+
+filesRouter.post('/:id/mutate', async (req, res, next) => {
+  try {
+    const parent = getArtifact(req.params.id, req.user.id);
+    if (!parent) return res.status(404).json({ error: 'artifact not found' });
+
+    const { operation, n, algo, target_length, target_prefix, max_iterations } = req.body || {};
+    if (!operation) return res.status(400).json({ error: 'operation required' });
+
+    const result = await callWorker('/mutate', {
+      data_b64: parent.bytes.toString('base64'),
+      operation,
+      n,
+      algo,
+      target_length,
+      target_prefix,
+      max_iterations,
+    });
+
+    const saved = saveArtifact({
+      userId: req.user.id,
+      fileType: parent.row.file_type,
+      dataB64: result.data_b64,
+      hashes: result.after,
+      size: result.size,
+      sourceOp: 'mutate',
+      parentId: parent.row.id,
+      metadata: { operation, iterations: result.iterations, before: result.before },
+    });
+    audit(req.user.id, 'mutate', { id: saved.id, parent: parent.row.id, operation, sha256: result.after.sha256 }, req.ip);
+    res.json({
+      id: saved.id,
+      operation,
+      iterations: result.iterations,
+      before: result.before,
+      after: result.after,
+      size: result.size,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+filesRouter.post('/convert', async (req, res, next) => {
+  try {
+    const { target, mode = 'rewrap', pdf_text } = req.body || {};
+    if (!target) return res.status(400).json({ error: 'target required' });
+    const data = await callWorker('/convert', { target, mode, pdf_text });
+    const saved = saveArtifact({
+      userId: req.user.id,
+      fileType: target,
+      dataB64: data.data_b64,
+      hashes: data.hashes,
+      size: data.size,
+      sourceOp: 'convert',
+      metadata: { mode, detected_as: data.detected_as },
+    });
+    audit(req.user.id, 'convert', { id: saved.id, target, mode, sha256: data.hashes.sha256 }, req.ip);
+    res.json({
+      id: saved.id,
+      target,
+      mode,
+      detected_as: data.detected_as,
+      size: data.size,
+      hashes: data.hashes,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+filesRouter.get('/:id', (req, res) => {
+  const a = getArtifact(req.params.id, req.user.id);
+  if (!a) return res.status(404).json({ error: 'not found' });
+  res.json({
+    id: a.row.id,
+    file_type: a.row.file_type,
+    filename: a.row.filename,
+    size: a.row.size,
+    md5: a.row.md5,
+    sha1: a.row.sha1,
+    sha256: a.row.sha256,
+    source_op: a.row.source_op,
+    parent_id: a.row.parent_id,
+    metadata: a.row.metadata ? JSON.parse(a.row.metadata) : null,
+    created_at: a.row.created_at,
+  });
+});
+
+filesRouter.get('/:id/download', (req, res) => {
+  const a = getArtifact(req.params.id, req.user.id);
+  if (!a) return res.status(404).json({ error: 'not found' });
+  audit(req.user.id, 'download', { id: a.row.id, sha256: a.row.sha256 }, req.ip);
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${a.row.filename}"`);
+  res.send(a.bytes);
+});

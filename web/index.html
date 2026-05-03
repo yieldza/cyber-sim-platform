@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CSP — Cyber Sim Platform</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">CSP</span>
+      <span class="subtitle">Blue-Team Detection Sim — EICAR-based</span>
+    </div>
+    <div id="userBadge" class="user-badge hidden"></div>
+  </header>
+
+  <main>
+    <section id="loginView" class="card">
+      <h2>Sign in</h2>
+      <p class="muted">Authorized testing only. All payloads are EICAR test signatures.</p>
+      <form id="loginForm">
+        <label>Username <input name="username" autocomplete="username" required /></label>
+        <label>Password <input name="password" type="password" autocomplete="current-password" required /></label>
+        <button type="submit">Sign in</button>
+        <div id="loginError" class="error"></div>
+      </form>
+    </section>
+
+    <section id="appView" class="hidden">
+      <nav class="tabs">
+        <button class="tab active" data-tab="generate">Generate</button>
+        <button class="tab" data-tab="mutate">Mutate hash</button>
+        <button class="tab" data-tab="convert">Convert / polyglot</button>
+        <button class="tab" data-tab="attack">ATT&amp;CK</button>
+        <button class="tab" data-tab="agents">Agents</button>
+        <button class="tab" data-tab="library">Library</button>
+      </nav>
+
+      <div class="tab-panel active" data-panel="generate">
+        <h3>Generate EICAR-bearing artifact</h3>
+        <form id="generateForm">
+          <label>File type
+            <select name="file_type">
+              <option value="eicar">eicar (raw 68-byte signature)</option>
+              <option value="com">com (DOS .COM)</option>
+              <option value="pe">pe (Windows PE32 .exe)</option>
+              <option value="pdf">pdf</option>
+              <option value="apk">apk</option>
+              <option value="docx">docx</option>
+            </select>
+          </label>
+          <label>Note (optional, audit only)
+            <input name="note" maxlength="200" placeholder="e.g. CrowdStrike PDF detection test" />
+          </label>
+          <button type="submit">Generate</button>
+        </form>
+        <pre id="generateResult" class="result"></pre>
+      </div>
+
+      <div class="tab-panel" data-panel="mutate">
+        <h3>Mutate file hash</h3>
+        <p class="muted">Pick a previously generated artifact and apply a hash mutation. Verifies whether your EDR uses static-hash or content/behavioral detection.</p>
+        <form id="mutateForm">
+          <label>Source artifact
+            <select name="artifact_id" id="mutateArtifact"></select>
+          </label>
+          <label>Operation
+            <select name="operation" id="mutateOp">
+              <option value="append_random">append_random — append N random bytes</option>
+              <option value="append_hash">append_hash — append self digest as bytes</option>
+              <option value="pad">pad — pad with null bytes to length</option>
+              <option value="until_prefix">until_prefix — brute-force until digest starts with prefix</option>
+            </select>
+          </label>
+          <label>Bytes (append_random) <input name="n" type="number" min="1" max="65536" value="32" /></label>
+          <label>Algorithm <select name="algo"><option>sha256</option><option>sha1</option><option>md5</option></select></label>
+          <label>Target length (pad) <input name="target_length" type="number" min="1" /></label>
+          <label>Target prefix (until_prefix, &le;6 hex) <input name="target_prefix" maxlength="6" placeholder="dead" /></label>
+          <button type="submit">Mutate</button>
+        </form>
+        <pre id="mutateResult" class="result"></pre>
+      </div>
+
+      <div class="tab-panel" data-panel="convert">
+        <h3>Convert / polyglot</h3>
+        <p class="muted">Rewrap = re-emit EICAR in a different container. Polyglot = single file valid as both PDF + ZIP/APK.</p>
+        <form id="convertForm">
+          <label>Target
+            <select name="target">
+              <option value="pdf">pdf</option>
+              <option value="docx">docx</option>
+              <option value="apk">apk</option>
+              <option value="pe">pe</option>
+              <option value="com">com</option>
+            </select>
+          </label>
+          <label>Mode
+            <select name="mode">
+              <option value="rewrap">rewrap</option>
+              <option value="polyglot">polyglot (PDF+ZIP)</option>
+            </select>
+          </label>
+          <label>PDF text (polyglot mode) <input name="pdf_text" placeholder="optional inline text" /></label>
+          <button type="submit">Convert</button>
+        </form>
+        <pre id="convertResult" class="result"></pre>
+      </div>
+
+      <div class="tab-panel" data-panel="attack">
+        <h3>MITRE ATT&amp;CK simulator</h3>
+        <p class="muted">Benign technique tests — emit telemetry without performing malicious action. Run locally on the worker (Linux only) or download a script for any target platform.</p>
+
+        <div class="attack-layout">
+          <div class="attack-list">
+            <input id="attackFilter" type="search" placeholder="filter by id / name / tactic" />
+            <ul id="attackTechniques"></ul>
+          </div>
+          <div class="attack-detail">
+            <div id="attackDetail" class="muted">Select a technique on the left.</div>
+          </div>
+        </div>
+
+        <pre id="attackResult" class="result"></pre>
+
+        <h4 class="section-h">Recent runs</h4>
+        <table id="runsTable">
+          <thead>
+            <tr><th>Created</th><th>Technique</th><th>Test</th><th>Exit</th><th>ms</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="tab-panel" data-panel="agents">
+        <h3>Agents (Caldera-style HTTP polling)</h3>
+        <p class="muted">Drop the agent script onto a test endpoint, hand it the enrollment token, and it beacons back here for tasks. All commands are sourced server-side from the ATT&amp;CK catalog — agents do not accept arbitrary input from operators.</p>
+
+        <div class="agent-controls">
+          <button id="newEnrollToken">New enroll token</button>
+          <span id="enrollTokenView" class="muted"></span>
+        </div>
+
+        <h4 class="section-h">Active agents</h4>
+        <table id="agentsTable">
+          <thead>
+            <tr><th>Created</th><th>ID</th><th>Hostname</th><th>Platform</th><th>Last seen</th><th>Beacons</th><th>Status</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+
+        <h4 class="section-h">Queue task to selected agent</h4>
+        <form id="queueTaskForm">
+          <label>Agent <select name="agent_id" id="taskAgentSelect"></select></label>
+          <label>Technique <select name="technique_id" id="taskTechSelect"></select></label>
+          <label>Test <select name="test_name" id="taskTestSelect"></select></label>
+          <label>Timeout (sec) <input name="timeout_sec" type="number" min="1" max="60" value="15" /></label>
+          <button type="submit">Queue task</button>
+        </form>
+
+        <h4 class="section-h">Recent agent tasks</h4>
+        <table id="agentTasksTable">
+          <thead>
+            <tr><th>Created</th><th>Agent</th><th>Technique</th><th>Test</th><th>Status</th><th>Exit</th><th>ms</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <pre id="agentResult" class="result"></pre>
+
+        <h4 class="section-h">Download agent</h4>
+        <p class="muted">
+          Source: <a href="#" data-agent-src="python">Python (Linux/macOS)</a> ·
+          <a href="#" data-agent-src="powershell">PowerShell (Windows)</a> ·
+          <a href="#" data-agent-src="csharp">C# / .NET (Windows)</a>
+        </p>
+      </div>
+
+      <div class="tab-panel" data-panel="library">
+        <h3>Artifacts</h3>
+        <button id="refreshLibrary">Refresh</button>
+        <table id="libraryTable">
+          <thead>
+            <tr><th>Created</th><th>Type</th><th>Op</th><th>Size</th><th>SHA-256</th><th></th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="disclaimer">
+      All artifacts contain only the EICAR Anti-Virus Test File signature. No real malware is produced.
+      Use only on systems and networks you are authorized to test.
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+version: "3.9"
+
+# Cyber Security Simulation Platform
+# For authorized blue-team detection testing (EDR/XDR/SASE) only.
+# All payloads are EICAR-based test signatures, not real malware.
+#
+# Image tags resolve from .env:
+#   IMAGE_REPO   = your Docker Hub repo, e.g. 124000pk/yieldpk
+#   TAG_API      = csp-api-0.1.0
+#   TAG_WORKER   = csp-worker-0.1.0
+#   TAG_WEB      = csp-web-0.1.0
+#
+# Local dev `docker compose up --build` rebuilds from sources and tags
+# the images for the next push. CI / production `docker compose pull &&
+# docker compose up -d` runs the published images.
+
+services:
+  worker:
+    image: ${IMAGE_REPO:-csp-local}:${TAG_WORKER:-csp-worker-dev}
+    build: ./worker
+    container_name: csp-worker
+    environment:
+      - WORKER_API_KEY=${WORKER_API_KEY}
+      - PYTHONUNBUFFERED=1
+    expose:
+      - "8001"
+    volumes:
+      - ./data/artifacts:/app/artifacts
+    restart: unless-stopped
+    networks:
+      - csp-net
+
+  api:
+    image: ${IMAGE_REPO:-csp-local}:${TAG_API:-csp-api-dev}
+    build: ./api
+    container_name: csp-api
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - WORKER_URL=http://worker:8001
+      - WORKER_API_KEY=${WORKER_API_KEY}
+      - DB_PATH=/app/data/csp.sqlite
+      - JWT_SECRET=${JWT_SECRET}
+      - ADMIN_USER=${ADMIN_USER}
+      - ADMIN_PASS=${ADMIN_PASS}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      - ./data:/app/data
+      - ./data/artifacts:/app/data/artifacts
+    depends_on:
+      - worker
+    restart: unless-stopped
+    networks:
+      - csp-net
+
+  web:
+    image: ${IMAGE_REPO:-csp-local}:${TAG_WEB:-csp-web-dev}
+    build: ./web
+    container_name: csp-web
+    ports:
+      - "${WEB_PORT:-8088}:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+    networks:
+      - csp-net
+
+networks:
+  csp-net:
+    driver: bridge

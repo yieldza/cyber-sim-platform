@@ -1,0 +1,600 @@
+{
+  "version": "1.0",
+  "description": "Benign MITRE ATT&CK simulations for blue-team detection testing. Every test emits telemetry an EDR/SIEM should detect, but performs no malicious action. Inspired by Atomic Red Team.",
+  "techniques": [
+    {
+      "id": "T1059.004",
+      "name": "Command and Scripting Interpreter: Unix Shell",
+      "tactic": "execution",
+      "platforms": ["linux", "macos"],
+      "description": "Adversaries may abuse Unix shell commands and scripts for execution.",
+      "tests": [
+        {
+          "name": "whoami_via_bash",
+          "description": "Spawn bash and execute `whoami` — basic shell-execution telemetry.",
+          "executor": "bash",
+          "command": "whoami",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["process_create: bash -> whoami", "user enumeration"]
+        },
+        {
+          "name": "id_via_bash",
+          "description": "Print uid/gid/groups via id(1).",
+          "executor": "bash",
+          "command": "id",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["process_create: bash -> id"]
+        }
+      ]
+    },
+    {
+      "id": "T1059.001",
+      "name": "Command and Scripting Interpreter: PowerShell",
+      "tactic": "execution",
+      "platforms": ["windows"],
+      "description": "Adversaries may abuse PowerShell commands and scripts for execution.",
+      "tests": [
+        {
+          "name": "whoami_via_powershell",
+          "description": "Run whoami inside powershell.exe.",
+          "executor": "powershell",
+          "command": "whoami; Get-Date | Out-String",
+          "platforms": ["windows"],
+          "expected_signals": ["process_create: powershell.exe -> whoami.exe", "Script Block Logging"]
+        },
+        {
+          "name": "encoded_command",
+          "description": "Run a base64-encoded benign command (T1027 + T1059.001).",
+          "executor": "powershell",
+          "command": "$b='V3JpdGUtSG9zdCAiQ1NQLXRlc3QiOyBHZXQtUHJvY2Vzcw==';powershell -EncodedCommand $b",
+          "platforms": ["windows"],
+          "expected_signals": ["powershell.exe with -EncodedCommand", "Script Block Logging deobfuscation"]
+        }
+      ]
+    },
+    {
+      "id": "T1059.003",
+      "name": "Command and Scripting Interpreter: Windows Command Shell",
+      "tactic": "execution",
+      "platforms": ["windows"],
+      "description": "Adversaries may abuse cmd.exe for execution.",
+      "tests": [
+        {
+          "name": "whoami_via_cmd",
+          "description": "cmd /c whoami — most common LOLBin probe.",
+          "executor": "cmd",
+          "command": "whoami && hostname",
+          "platforms": ["windows"],
+          "expected_signals": ["process_create: cmd.exe -> whoami.exe"]
+        }
+      ]
+    },
+    {
+      "id": "T1082",
+      "name": "System Information Discovery",
+      "tactic": "discovery",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries enumerate OS, hardware, and version data after access.",
+      "tests": [
+        {
+          "name": "uname_unix",
+          "description": "Kernel and arch via uname; tries /etc/os-release when present.",
+          "executor": "bash",
+          "command": "uname -a && (cat /etc/os-release 2>/dev/null | head -n 5 || sw_vers 2>/dev/null)",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["read /etc/os-release", "uname syscall"]
+        },
+        {
+          "name": "systeminfo_windows",
+          "description": "Equivalent on Windows: systeminfo.",
+          "executor": "cmd",
+          "command": "systeminfo",
+          "platforms": ["windows"],
+          "expected_signals": ["systeminfo.exe execution"]
+        }
+      ]
+    },
+    {
+      "id": "T1087.001",
+      "name": "Account Discovery: Local Account",
+      "tactic": "discovery",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries enumerate local user accounts.",
+      "tests": [
+        {
+          "name": "passwd_read",
+          "description": "cat /etc/passwd to enumerate local users.",
+          "executor": "bash",
+          "command": "cat /etc/passwd",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["sensitive file access: /etc/passwd"]
+        },
+        {
+          "name": "net_user_windows",
+          "description": "net user — list local users on Windows.",
+          "executor": "cmd",
+          "command": "net user && net localgroup administrators",
+          "platforms": ["windows"],
+          "expected_signals": ["net.exe execution", "local group enumeration"]
+        }
+      ]
+    },
+    {
+      "id": "T1057",
+      "name": "Process Discovery",
+      "tactic": "discovery",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries list running processes after access.",
+      "tests": [
+        {
+          "name": "ps_aux",
+          "description": "ps aux — list all processes on Linux/Mac.",
+          "executor": "bash",
+          "command": "ps aux | head -n 30",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["ps process_create"]
+        },
+        {
+          "name": "tasklist_windows",
+          "description": "tasklist — Windows equivalent.",
+          "executor": "cmd",
+          "command": "tasklist /v",
+          "platforms": ["windows"],
+          "expected_signals": ["tasklist.exe execution"]
+        }
+      ]
+    },
+    {
+      "id": "T1083",
+      "name": "File and Directory Discovery",
+      "tactic": "discovery",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries enumerate filesystem after access.",
+      "tests": [
+        {
+          "name": "find_recent_files",
+          "description": "Find files modified in last 24h under $HOME.",
+          "executor": "bash",
+          "command": "find \"${HOME:-/tmp}\" -type f -mtime -1 2>/dev/null | head -n 50",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["find process_create with -mtime", "wide filesystem read"]
+        }
+      ]
+    },
+    {
+      "id": "T1018",
+      "name": "Remote System Discovery",
+      "tactic": "discovery",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries enumerate other hosts on the network.",
+      "tests": [
+        {
+          "name": "arp_table",
+          "description": "Read ARP cache.",
+          "executor": "bash",
+          "command": "ip neigh show 2>/dev/null || arp -a 2>/dev/null || cat /proc/net/arp",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["arp/ip neigh execution"]
+        }
+      ]
+    },
+    {
+      "id": "T1016",
+      "name": "System Network Configuration Discovery",
+      "tactic": "discovery",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries probe local network configuration.",
+      "tests": [
+        {
+          "name": "ip_addr",
+          "description": "Show interfaces and addresses.",
+          "executor": "bash",
+          "command": "ip addr 2>/dev/null || ifconfig",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["ip / ifconfig execution"]
+        },
+        {
+          "name": "ipconfig_windows",
+          "description": "Windows ipconfig /all.",
+          "executor": "cmd",
+          "command": "ipconfig /all",
+          "platforms": ["windows"],
+          "expected_signals": ["ipconfig.exe execution"]
+        }
+      ]
+    },
+    {
+      "id": "T1049",
+      "name": "System Network Connections Discovery",
+      "tactic": "discovery",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries inspect open sockets after access.",
+      "tests": [
+        {
+          "name": "ss_listen",
+          "description": "List listening TCP/UDP sockets.",
+          "executor": "bash",
+          "command": "ss -tulpn 2>/dev/null || netstat -tulpn",
+          "platforms": ["linux"],
+          "expected_signals": ["ss / netstat execution"]
+        },
+        {
+          "name": "netstat_windows",
+          "description": "netstat -ano on Windows.",
+          "executor": "cmd",
+          "command": "netstat -ano",
+          "platforms": ["windows"],
+          "expected_signals": ["netstat.exe execution"]
+        }
+      ]
+    },
+    {
+      "id": "T1033",
+      "name": "System Owner / User Discovery",
+      "tactic": "discovery",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Identifies the current logged-in user.",
+      "tests": [
+        {
+          "name": "whoami_all",
+          "description": "whoami; logname; w (combined).",
+          "executor": "bash",
+          "command": "whoami; logname 2>/dev/null; w 2>/dev/null | head -n 5",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["whoami / w execution"]
+        }
+      ]
+    },
+    {
+      "id": "T1518.001",
+      "name": "Software Discovery: Security Software",
+      "tactic": "discovery",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Enumerate installed AV / EDR.",
+      "tests": [
+        {
+          "name": "list_av_processes_linux",
+          "description": "Look for common Linux EDR processes (falcon-sensor, osquery, auditd).",
+          "executor": "bash",
+          "command": "ps -ef | grep -Ei 'falcon|osquery|auditd|sentinel|crowdstrike|carbonblack|wazuh' | grep -v grep || echo 'no edr processes seen'",
+          "platforms": ["linux"],
+          "expected_signals": ["EDR process enumeration heuristic"]
+        },
+        {
+          "name": "list_av_services_windows",
+          "description": "PowerShell — Get-Service for Defender/CrowdStrike/etc.",
+          "executor": "powershell",
+          "command": "Get-Service | Where-Object {$_.Name -match 'WinDefend|CSFalcon|Sense|Sentinel'} | Format-Table -AutoSize",
+          "platforms": ["windows"],
+          "expected_signals": ["Get-Service enumeration"]
+        }
+      ]
+    },
+    {
+      "id": "T1140",
+      "name": "Deobfuscate / Decode Files or Information",
+      "tactic": "defense-evasion",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries decode obfuscated data at runtime.",
+      "tests": [
+        {
+          "name": "base64_decode_benign",
+          "description": "Echo+decode a benign base64 string ('CSP-test').",
+          "executor": "bash",
+          "command": "echo 'Q1NQLXRlc3Q=' | base64 -d && echo",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["base64 -d invocation"]
+        }
+      ]
+    },
+    {
+      "id": "T1027",
+      "name": "Obfuscated Files or Information",
+      "tactic": "defense-evasion",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries pack/encode payloads to evade static detection.",
+      "tests": [
+        {
+          "name": "encode_script_base64",
+          "description": "Base64-encode a benign 'whoami' inline.",
+          "executor": "bash",
+          "command": "echo 'whoami' | base64",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["base64 encoding heuristic"]
+        }
+      ]
+    },
+    {
+      "id": "T1547.001",
+      "name": "Boot or Logon Autostart Execution: Registry Run Keys",
+      "tactic": "persistence",
+      "platforms": ["windows"],
+      "description": "Adversaries write a value under HKCU\\...\\Run for persistence.",
+      "tests": [
+        {
+          "name": "write_run_key_test",
+          "description": "Add and remove a clearly-marked CSP test value under HKCU Run.",
+          "executor": "powershell",
+          "command": "$k='HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run'; New-ItemProperty -Path $k -Name 'CSP_TEST_DELETE_ME' -Value 'notepad.exe' -Force; Start-Sleep 1; Remove-ItemProperty -Path $k -Name 'CSP_TEST_DELETE_ME' -Force",
+          "platforms": ["windows"],
+          "expected_signals": ["registry value created at HKCU Run", "value name CSP_TEST_DELETE_ME"],
+          "cleanup": "Remove-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run' -Name 'CSP_TEST_DELETE_ME' -ErrorAction SilentlyContinue"
+        }
+      ]
+    },
+    {
+      "id": "T1053.005",
+      "name": "Scheduled Task / Job: Scheduled Task",
+      "tactic": "persistence",
+      "platforms": ["windows"],
+      "description": "Adversaries use schtasks for persistence.",
+      "tests": [
+        {
+          "name": "schtasks_list",
+          "description": "List scheduled tasks (read-only — no creation).",
+          "executor": "cmd",
+          "command": "schtasks /query /fo LIST /v | more",
+          "platforms": ["windows"],
+          "expected_signals": ["schtasks.exe with /query"]
+        }
+      ]
+    },
+    {
+      "id": "T1218.011",
+      "name": "System Binary Proxy Execution: Rundll32",
+      "tactic": "defense-evasion",
+      "platforms": ["windows"],
+      "description": "Rundll32 abuse for proxy execution.",
+      "tests": [
+        {
+          "name": "rundll32_help",
+          "description": "Invoke a benign rundll32 -> shell32 ShellAbout dialog (closes itself in the script).",
+          "executor": "powershell",
+          "command": "Start-Process rundll32.exe -ArgumentList 'shell32.dll,Control_RunDLL' -PassThru | ForEach-Object { Start-Sleep 1; Stop-Process -Id $_.Id -ErrorAction SilentlyContinue }",
+          "platforms": ["windows"],
+          "expected_signals": ["rundll32.exe process_create with shell32.dll"]
+        }
+      ]
+    },
+    {
+      "id": "T1003",
+      "name": "OS Credential Dumping (SIMULATION)",
+      "tactic": "credential-access",
+      "platforms": ["windows", "linux"],
+      "description": "Adversaries dump credentials from memory (mimikatz, lsass). This test only emits the keyword & file path indicators an EDR should match — it does NOT extract any credential.",
+      "tests": [
+        {
+          "name": "mimikatz_keyword_simulation",
+          "description": "Echo 'mimikatz' and 'sekurlsa::logonpasswords' to trigger keyword/string detection rules.",
+          "executor": "bash",
+          "command": "echo 'mimikatz sekurlsa::logonpasswords privilege::debug' && echo 'simulation only — no credential extraction'",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["YARA / signature rule match on 'mimikatz' / 'sekurlsa'"]
+        },
+        {
+          "name": "lsass_handle_simulation",
+          "description": "PowerShell Get-Process lsass — common precursor to dumping. No memory read performed.",
+          "executor": "powershell",
+          "command": "Get-Process lsass -ErrorAction SilentlyContinue | Format-Table Id,Name,Path -AutoSize",
+          "platforms": ["windows"],
+          "expected_signals": ["Get-Process lsass query (T1003.001 precursor)"]
+        }
+      ]
+    },
+    {
+      "id": "T1552.001",
+      "name": "Unsecured Credentials: Files",
+      "tactic": "credential-access",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries grep filesystem for credential keywords.",
+      "tests": [
+        {
+          "name": "grep_passwords_in_home",
+          "description": "Recursive grep for 'password' under $HOME (read-only, results truncated).",
+          "executor": "bash",
+          "command": "grep -RIli 'password' \"${HOME:-/tmp}\" 2>/dev/null | head -n 20",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["wide-fanout grep across user files"]
+        }
+      ]
+    },
+    {
+      "id": "T1105",
+      "name": "Ingress Tool Transfer",
+      "tactic": "command-and-control",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries download tooling onto a host.",
+      "tests": [
+        {
+          "name": "curl_eicar_download",
+          "description": "Download the official EICAR test file from secure.eicar.org via curl.",
+          "executor": "bash",
+          "command": "curl -fsS -o /tmp/csp-eicar.txt https://secure.eicar.org/eicar.com.txt && ls -la /tmp/csp-eicar.txt && head -c 70 /tmp/csp-eicar.txt; rm -f /tmp/csp-eicar.txt",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["curl outbound to secure.eicar.org", "EICAR signature on disk"]
+        },
+        {
+          "name": "iwr_eicar_download",
+          "description": "Windows: Invoke-WebRequest the official EICAR test file.",
+          "executor": "powershell",
+          "command": "Invoke-WebRequest -Uri 'https://secure.eicar.org/eicar.com.txt' -OutFile $env:TEMP\\csp-eicar.txt; Get-Item $env:TEMP\\csp-eicar.txt; Remove-Item $env:TEMP\\csp-eicar.txt -Force",
+          "platforms": ["windows"],
+          "expected_signals": ["Invoke-WebRequest to secure.eicar.org", "EICAR drop in %TEMP%"]
+        }
+      ]
+    },
+    {
+      "id": "T1071.001",
+      "name": "Application Layer Protocol: Web (HTTP)",
+      "tactic": "command-and-control",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Probe outbound HTTP — used here only to demonstrate beacon-like traffic to a public health endpoint.",
+      "tests": [
+        {
+          "name": "http_beacon_probe",
+          "description": "Single GET to https://www.example.com and print status.",
+          "executor": "bash",
+          "command": "curl -s -o /dev/null -w 'http_code=%{http_code} size=%{size_download} time=%{time_total}\\n' https://www.example.com",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["egress HTTPS connection from non-browser process"]
+        }
+      ]
+    },
+    {
+      "id": "T1021.004",
+      "name": "Remote Services: SSH",
+      "tactic": "lateral-movement",
+      "platforms": ["linux", "macos"],
+      "description": "Adversaries use SSH to move laterally between *nix hosts. This test only spawns ssh(1) against a deliberately invalid host with BatchMode and a short timeout — process telemetry is emitted but no authentication or remote interaction occurs.",
+      "tests": [
+        {
+          "name": "ssh_attempt_invalid_host",
+          "description": "Spawn ssh against csp-lateral-test.invalid with BatchMode=yes — fails fast on DNS, but EDR observes ssh process_create and outbound TCP/22 attempt.",
+          "executor": "bash",
+          "command": "ssh -o BatchMode=yes -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null csp-lateral-test.invalid 'whoami' 2>&1 | head -n 5 || true; echo '[CSP] ssh process telemetry emitted (no auth attempted)'",
+          "platforms": ["linux", "macos"],
+          "expected_signals": [
+            "process_create: bash -> ssh",
+            "ssh client argv with BatchMode=yes (typical of automation / lateral tooling)",
+            "DNS query for non-resolving hostname",
+            "outbound TCP/22 attempt from non-interactive process"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "T1021.002",
+      "name": "Remote Services: SMB / Windows Admin Shares",
+      "tactic": "lateral-movement",
+      "platforms": ["windows"],
+      "description": "Adversaries reach Admin$ / IPC$ / C$ over SMB to move laterally. This test only enumerates local shares — no remote authentication is attempted.",
+      "tests": [
+        {
+          "name": "enumerate_local_smb_shares",
+          "description": "Get-SmbShare locally + net view \\\\localhost — typical pre-lateral-movement reconnaissance pattern.",
+          "executor": "powershell",
+          "command": "Get-SmbShare | Format-Table Name,Path,Description -AutoSize; net view \\\\localhost",
+          "platforms": ["windows"],
+          "expected_signals": [
+            "Get-SmbShare cmdlet (Script Block Logging)",
+            "net.exe view command line",
+            "SMB share enumeration on localhost"
+          ]
+        },
+        {
+          "name": "smb_admin_share_probe",
+          "description": "Test-Path to \\\\localhost\\C$ — probes IPC + Admin$ access pattern. Fails benignly if not authorized.",
+          "executor": "powershell",
+          "command": "try { Test-Path '\\\\localhost\\C$' } catch { Write-Host '[CSP] admin$ probe failed (expected unless local admin)' }",
+          "platforms": ["windows"],
+          "expected_signals": [
+            "SMB session open to \\\\localhost\\C$",
+            "Admin$ / IPC$ access attempt"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "T1021.006",
+      "name": "Remote Services: Windows Remote Management (WinRM)",
+      "tactic": "lateral-movement",
+      "platforms": ["windows"],
+      "description": "Adversaries use WinRM (PowerShell remoting) to execute on remote hosts. This test only probes WSMan on localhost — no remote command is run.",
+      "tests": [
+        {
+          "name": "test_wsman_localhost",
+          "description": "Test-WSMan against localhost — emits WinRM HTTP/HTTPS probe telemetry without launching a remote session.",
+          "executor": "powershell",
+          "command": "try { Test-WSMan -ComputerName localhost -ErrorAction Stop | Format-List } catch { Write-Host '[CSP] WinRM probe failed (service may be disabled - expected)' }",
+          "platforms": ["windows"],
+          "expected_signals": [
+            "Test-WSMan cmdlet (Script Block Logging)",
+            "WSMan HTTP probe to 127.0.0.1:5985 / 5986",
+            "WinRM client process spawn"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "T1570",
+      "name": "Lateral Tool Transfer",
+      "tactic": "lateral-movement",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries copy tooling between hosts inside the network. These tests spawn the typical transfer process (scp / Copy-Item) but the target is invalid so no transfer succeeds.",
+      "tests": [
+        {
+          "name": "scp_attempt_invalid_host",
+          "description": "Spawn scp to push /etc/hostname to an invalid lateral target — emits scp process telemetry without a real transfer.",
+          "executor": "bash",
+          "command": "scp -o BatchMode=yes -o ConnectTimeout=2 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null /etc/hosts csp-lateral-test.invalid:/tmp/csp-payload.txt 2>&1 | head -n 5 || true; echo '[CSP] scp telemetry emitted (no transfer occurred)'",
+          "platforms": ["linux", "macos"],
+          "expected_signals": [
+            "process_create: bash -> scp",
+            "scp argv targeting remote host (lateral transfer indicator)",
+            "outbound TCP/22 attempt"
+          ]
+        },
+        {
+          "name": "copy_item_to_session_simulation",
+          "description": "PowerShell Copy-Item -ToSession to a non-existent PSSession — emits the lateral-transfer cmdlet pattern without an actual session.",
+          "executor": "powershell",
+          "command": "try { $s = New-PSSession -ComputerName 'csp-lateral-test.invalid' -ErrorAction Stop; Copy-Item -Path $env:windir\\System32\\drivers\\etc\\hosts -Destination 'C:\\Temp\\' -ToSession $s; Remove-PSSession $s } catch { Write-Host '[CSP] PSSession to invalid host failed (expected) — pattern logged in PowerShell ScriptBlock' }",
+          "platforms": ["windows"],
+          "expected_signals": [
+            "New-PSSession + Copy-Item -ToSession pattern in Script Block Logging",
+            "WinRM connection attempt to invalid host"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "T1550.002",
+      "name": "Use Alternate Authentication Material: Pass-the-Hash (SIMULATION)",
+      "tactic": "lateral-movement",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries authenticate to remote services with a captured NTLM hash instead of a password. This test only echoes the canonical mimikatz pass-the-hash command line as a string-detection probe — no hash is provided, used, or transmitted.",
+      "tests": [
+        {
+          "name": "pth_keyword_simulation",
+          "description": "Echo the typical 'sekurlsa::pth' invocation pattern — verifies SIEM/YARA string-match rules without performing PtH.",
+          "executor": "bash",
+          "command": "echo 'sekurlsa::pth /user:Administrator /domain:CSP-LAB /ntlm:00000000000000000000000000000000 /run:cmd.exe' && echo '[CSP] simulation only — no hash supplied, no auth attempted'",
+          "platforms": ["linux", "macos"],
+          "expected_signals": [
+            "string match: 'sekurlsa::pth'",
+            "string match: '/ntlm:' followed by hash-shaped value",
+            "YARA mimikatz signature firing"
+          ]
+        },
+        {
+          "name": "pth_keyword_simulation_powershell",
+          "description": "PowerShell variant — echo PtH invocation pattern via Write-Host for ScriptBlock logging detection.",
+          "executor": "powershell",
+          "command": "Write-Host 'sekurlsa::pth /user:Administrator /domain:CSP-LAB /ntlm:00000000000000000000000000000000 /run:cmd.exe'; Write-Host '[CSP] simulation only — no hash supplied'",
+          "platforms": ["windows"],
+          "expected_signals": [
+            "Script Block Logging: 'sekurlsa::pth' string",
+            "Defender AMSI may flag mimikatz keywords"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "T1070.004",
+      "name": "Indicator Removal: File Deletion",
+      "tactic": "defense-evasion",
+      "platforms": ["windows", "linux", "macos"],
+      "description": "Adversaries delete files to hide tracks.",
+      "tests": [
+        {
+          "name": "create_and_delete_file",
+          "description": "Create a marker file in /tmp then delete it (simulates evidence removal).",
+          "executor": "bash",
+          "command": "f=/tmp/csp_test_evidence_$$.log; date > \"$f\"; ls -la \"$f\"; rm -f \"$f\"; echo deleted",
+          "platforms": ["linux", "macos"],
+          "expected_signals": ["file create -> file delete short window"]
+        }
+      ]
+    }
+  ]
+}
