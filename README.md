@@ -108,46 +108,6 @@ open http://localhost:8088
 curl http://localhost:8080/healthz
 ```
 
-## Publishing to Docker Hub
-
-The compose file is pre-wired so the same `docker-compose.yml` works for
-local development (`build:`) **and** for consumers pulling pre-built
-images from your registry (`image:`). Image refs come from `.env`:
-
-```bash
-# .env (extends .env.example)
-IMAGE_REPO=124000pk/yieldpk
-TAG_API=csp-api-0.1.0
-TAG_WORKER=csp-worker-0.1.0
-TAG_WEB=csp-web-0.1.0
-```
-
-### Build + push (single arch — your dev machine's arch)
-
-```bash
-docker login                          # once
-
-scripts/build-and-push.sh             # build + push api + worker + web
-scripts/build-and-push.sh --build     # build only, don't push
-scripts/build-and-push.sh api         # only the api image
-```
-
-That produces three tags under your repo:
-
-```
-124000pk/yieldpk:csp-api-0.1.0
-124000pk/yieldpk:csp-worker-0.1.0
-124000pk/yieldpk:csp-web-0.1.0
-```
-
-### Multi-arch (linux/amd64 + linux/arm64) — recommended for public
-
-```bash
-scripts/build-and-push.sh --multiarch
-```
-
-Uses `docker buildx` and pushes a manifest that resolves correctly on
-both Intel and Apple-silicon hosts.
 
 ### Consumers: pull and run from Hub
 
