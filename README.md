@@ -249,3 +249,71 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 - [x] **B.** MITRE ATT&CK technique catalog (27 techs / 7 tactics) + benign runner + script generator
 - [x] **C.** HTTP-polling agent (Python / PowerShell / C#) + C2 task queue
 - [ ] **D.** Prompt-driven feature extension (LLM-assisted technique authoring)
+
+## Changelog
+
+### v0.2.0 — 2026-05-06
+
+UX improvements on the Generate and Mutate tabs:
+
+- **Generate tab — auto-download.** Clicking *Generate* now produces the
+  artifact and immediately streams it to your browser as a download. No
+  more switching to the Library tab to grab the file. If the auto-download
+  fails (e.g. browser blocks it), the artifact is still saved server-side
+  and a clear error points you to the Library tab.
+- **Mutate tab — Browse local drive.** A new *Source* toggle lets you
+  pick the bytes to mutate from either:
+  - **From library (previously generated)** — original behaviour.
+  - **Browse local drive** — any local file up to 10 MB. The file is read
+    in the browser via `FileReader`, base64-encoded, and POSTed to the
+    new `POST /api/files/mutate-upload` endpoint. The mutated result is
+    persisted as a new artifact (`source_op = mutate-upload`, no parent)
+    and auto-downloaded.
+
+Image tags published to Docker Hub (multiarch `linux/amd64` + `linux/arm64`):
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.2.0       327 MB
+docker.io/124000pk/yieldpk:csp-worker-0.2.0    330 MB
+docker.io/124000pk/yieldpk:csp-web-0.2.0        40 MB
+```
+
+`v0.1.0` tags remain on Docker Hub for pinning.
+
+### How to update an existing deployment to v0.2.0
+
+```bash
+cd /path/to/csp                               # where docker-compose.yml + .env live
+
+# bump tags (sed any version, or edit by hand)
+sed -i.bak \
+  -e 's/^TAG_API=.*/TAG_API=csp-api-0.2.0/' \
+  -e 's/^TAG_WORKER=.*/TAG_WORKER=csp-worker-0.2.0/' \
+  -e 's/^TAG_WEB=.*/TAG_WEB=csp-web-0.2.0/' \
+  .env
+
+docker compose pull           # pulls 3 new images from Docker Hub
+docker compose up -d          # recreates containers using the new images
+docker compose ps             # confirm csp-api / csp-worker / csp-web are up
+
+# verify
+curl -s http://localhost:8080/healthz | jq
+open http://localhost:8088
+```
+
+**No DB migration required** — the SQLite schema for v0.2.0 is identical
+to v0.1.0. Existing artifacts, agents, audit logs, and technique runs
+are preserved.
+
+### Rollback
+
+```bash
+sed -i.bak 's/0\.2\.0/0.1.0/g' .env
+docker compose pull && docker compose up -d
+```
+
+### v0.1.0 — 2026-05-03
+
+Initial release: milestones A (file generators / hash mutation / polyglot
+conversion), B (27-technique ATT&CK catalog incl. lateral movement), and
+C (Caldera-style HTTP-polling agents).
