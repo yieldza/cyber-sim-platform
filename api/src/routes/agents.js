@@ -23,9 +23,12 @@ const AGENT_DIR = process.env.AGENT_DIR
   || (existsSync('/app/agent') ? '/app/agent' : join(__dirname, '../../../agent'));
 
 const AGENT_FILES = {
-  python:     { path: 'python/csp_agent.py',          filename: 'csp_agent.py',     mime: 'text/x-python' },
-  powershell: { path: 'powershell/csp-agent.ps1',     filename: 'csp-agent.ps1',    mime: 'application/x-powershell' },
-  csharp:     { path: 'csharp/CspAgent.cs',           filename: 'CspAgent.cs',      mime: 'text/x-csharp' },
+  python:           { path: 'python/csp_agent.py',          filename: 'csp_agent.py',     mime: 'text/x-python' },
+  powershell:       { path: 'powershell/csp-agent.ps1',     filename: 'csp-agent.ps1',    mime: 'application/x-powershell' },
+  // Companion launcher to powershell — bypasses ExecutionPolicy so the
+  // user never gets the "running scripts is disabled" prompt.
+  'powershell-cmd': { path: 'powershell/csp-agent.cmd',     filename: 'csp-agent.cmd',    mime: 'application/x-bat' },
+  csharp:           { path: 'csharp/CspAgent.cs',           filename: 'CspAgent.cs',      mime: 'text/x-csharp' },
 };
 
 export const operatorAgentsRouter = Router();   // /api/agents/*  (operator UI)
@@ -60,7 +63,11 @@ operatorAgentsRouter.get('/download/:lang', (req, res) => {
     body = lines.join('\n');
   } else if (req.params.lang === 'powershell') {
     body =
-      "# To run an unsigned script on Windows without modifying machine policy:\n" +
+      "# Easiest first run on Windows — download the .cmd launcher next to this\n" +
+      "# .ps1 file and run that instead. The launcher auto-bypasses ExecutionPolicy:\n" +
+      "#   csp-agent.cmd -C2 http://<csp-host>:8080 -EnrollToken ent_xxx\n" +
+      "#\n" +
+      "# Or, run this .ps1 directly with the bypass flag (no machine policy change):\n" +
       "#   PowerShell -ExecutionPolicy Bypass -File .\\csp-agent.ps1 -C2 ... -EnrollToken ...\n" +
       "# or, in an interactive session:  Set-ExecutionPolicy -Scope Process Bypass\n\n" +
       body;

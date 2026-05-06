@@ -356,9 +356,16 @@ td a {
 /* Agent download cards */
 .agent-downloads {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 10px;
   margin: 10px 0;
+}
+.agent-downloads button.recommended {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, rgba(88, 225, 200, 0.08) 0%, var(--panel-2) 100%);
+}
+.agent-downloads button.recommended .dl-lang {
+  color: var(--accent);
 }
 .agent-downloads button {
   display: flex;

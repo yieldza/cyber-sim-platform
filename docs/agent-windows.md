@@ -3,15 +3,31 @@
 Two paths are supported:
 
 - **PowerShell agent** — easiest, no compile step. Recommended to start.
+  Pair the `.ps1` with the `.cmd` launcher (added in v0.3.1) so the user
+  never sees the "running scripts is disabled" ExecutionPolicy prompt.
 - **C# / .NET agent** — single-file `.exe`, useful for production-style
   deploys (Windows Service, no PowerShell dependency).
 
-Both ship with the platform from v0.3.0 — download them straight from the
-operator UI, no need to clone the repo.
+Both ship with the platform — download them straight from the operator
+UI, no need to clone the repo.
 
 ---
 
-## Path 1 — PowerShell agent
+## Path 1 — PowerShell agent (recommended)
+
+> **TL;DR — the simplest first run** (zero ExecutionPolicy fights):
+>
+> 1. From the operator UI Agents tab, click **PowerShell launcher (.cmd) ★**
+>    *and* **PowerShell (.ps1)** — two downloads, save them in the SAME folder.
+> 2. Open `cmd.exe` (or PowerShell), `cd` to that folder.
+> 3. Run:
+>    ```cmd
+>    csp-agent.cmd -C2 http://<csp-host-ip>:8080 -EnrollToken ent_xxx -Label win10-test-01
+>    ```
+>    Done. The .cmd handles ExecutionPolicy for you.
+>
+> The detailed walkthrough below is for cases where you want to invoke
+> `powershell.exe` directly without the launcher.
 
 ### Step 1. Mint an enrollment token (on the C2 host)
 
@@ -22,14 +38,28 @@ operator UI, no need to clone the repo.
 4. Click the **PowerShell** download card under *Download agent*. Save
    `csp-agent.ps1` somewhere easy to grab.
 
-### Step 2. Move the script onto the Windows test endpoint
+### Step 2. Move the script(s) onto the Windows test endpoint
 
 Use whatever you already have — SCP, an SMB share, USB, etc. A common
-landing path is `C:\Tools\csp-agent.ps1`.
+landing path is `C:\Tools\`. Place **both** `csp-agent.cmd` and
+`csp-agent.ps1` in the same folder.
 
 ### Step 3. Run the agent
 
-Open PowerShell (no admin rights needed):
+**Recommended — via the .cmd launcher (no ExecutionPolicy prompt):**
+
+```cmd
+cd C:\Tools
+
+csp-agent.cmd -C2 http://<csp-host-ip>:8080 ^
+              -EnrollToken ent_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ^
+              -Label win10-test-01
+```
+
+The `.cmd` invokes `powershell.exe -NoProfile -ExecutionPolicy Bypass -File csp-agent.ps1`
+under the hood — process-scoped, so no system-wide policy change is made.
+
+**Alternative — invoke PowerShell directly:**
 
 ```powershell
 cd C:\Tools

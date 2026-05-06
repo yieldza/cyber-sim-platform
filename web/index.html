@@ -202,19 +202,24 @@
             <span class="dl-lang">Python</span>
             <span class="dl-meta">Linux / macOS · Python 3.9+ · stdlib only</span>
           </button>
+          <button type="button" data-agent-dl="powershell-cmd" class="recommended">
+            <span class="dl-lang">PowerShell launcher (.cmd) ★</span>
+            <span class="dl-meta">Windows · auto-bypasses ExecutionPolicy · pair with the .ps1 below</span>
+          </button>
           <button type="button" data-agent-dl="powershell">
-            <span class="dl-lang">PowerShell</span>
-            <span class="dl-meta">Windows · PS 5.1+ · ExecutionPolicy Bypass for unsigned</span>
+            <span class="dl-lang">PowerShell (.ps1)</span>
+            <span class="dl-meta">Windows · PS 5.1+ · run via the .cmd launcher above</span>
           </button>
           <button type="button" data-agent-dl="csharp">
             <span class="dl-lang">C# / .NET</span>
-            <span class="dl-meta">Windows · .NET 6+ · build with `dotnet publish`</span>
+            <span class="dl-meta">Windows · .NET 6+ · build with <code>dotnet publish</code></span>
           </button>
         </div>
         <p class="muted">After download:<br>
-          • Python — <code>chmod +x csp_agent.py</code> (or run via <code>python3 csp_agent.py …</code>)<br>
-          • PowerShell — <code>powershell -ExecutionPolicy Bypass -File .\csp-agent.ps1 -C2 … -EnrollToken …</code><br>
-          • C# — see header comments in the .cs file for <code>dotnet publish</code> build steps.
+          • <strong>Windows (recommended)</strong> — download <em>both</em> <code>csp-agent.cmd</code> and <code>csp-agent.ps1</code> into the same folder, then run <code>csp-agent.cmd -C2 … -EnrollToken …</code>. The launcher auto-bypasses ExecutionPolicy so you never see the "running scripts is disabled" prompt.<br>
+          • <strong>Windows (manual)</strong> — <code>powershell -ExecutionPolicy Bypass -File .\csp-agent.ps1 -C2 … -EnrollToken …</code><br>
+          • <strong>Linux / macOS</strong> — <code>chmod +x csp_agent.py</code> (or run via <code>python3 csp_agent.py …</code>)<br>
+          • <strong>C#</strong> — see header comments in the .cs file for <code>dotnet publish</code> build steps.
         </p>
       </div>
 

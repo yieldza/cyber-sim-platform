@@ -252,6 +252,50 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.3.1 — 2026-05-06
+
+Fixes the "running scripts is disabled on this system" prompt that
+operators saw on first run of the PowerShell agent.
+
+- **New `csp-agent.cmd` launcher** (downloadable from the Agents tab as
+  *PowerShell launcher (.cmd) ★*). It calls
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -File csp-agent.ps1`
+  process-scoped, so the user no longer sees the ExecutionPolicy block
+  and the host machine policy is not modified. The launcher requires the
+  `.ps1` to live in the same folder.
+- **Updated agent download UI** — now four cards (Python, PowerShell .cmd
+  launcher, PowerShell .ps1, C#). The launcher card is highlighted with
+  the accent border to flag it as the recommended Windows path.
+- **Header note injected into the .ps1 download** points new users at
+  the .cmd launcher first.
+- **Docs:** [`docs/agent-windows.md`](docs/agent-windows.md) opens with a
+  TL;DR that uses the .cmd launcher; the manual `-ExecutionPolicy Bypass`
+  invocation is kept as the alternative.
+
+Image tags published to Docker Hub (multiarch `linux/amd64` + `linux/arm64`):
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.3.1       327 MB
+docker.io/124000pk/yieldpk:csp-worker-0.3.1    330 MB
+docker.io/124000pk/yieldpk:csp-web-0.3.1        40 MB
+```
+
+### How to update an existing deployment to v0.3.1
+
+```bash
+cd /path/to/csp
+sed -i.bak \
+  -e 's/^TAG_API=.*/TAG_API=csp-api-0.3.1/' \
+  -e 's/^TAG_WORKER=.*/TAG_WORKER=csp-worker-0.3.1/' \
+  -e 's/^TAG_WEB=.*/TAG_WEB=csp-web-0.3.1/' \
+  .env
+
+docker compose pull && docker compose up -d
+```
+
+No DB migration. After upgrade, re-download the PowerShell agent files
+from the Agents tab — the new .cmd launcher is offered there.
+
 ### v0.3.0 — 2026-05-06
 
 Behavioural detection coverage + better agent UX + branding:

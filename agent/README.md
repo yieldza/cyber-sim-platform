@@ -35,17 +35,23 @@ python3 csp_agent.py --c2 https://csp.example.com ...
 ```
 
 **Windows — PowerShell agent**
+```cmd
+:: (RECOMMENDED) Use the .cmd launcher next to the .ps1 — zero ExecutionPolicy fights.
+:: Download BOTH csp-agent.cmd and csp-agent.ps1 from the UI into the same folder, then:
+csp-agent.cmd -C2 https://... -EnrollToken ent_... -Label hostname
+```
+
 ```powershell
-# Default ExecutionPolicy on Windows blocks unsigned scripts. Two options:
-# (1) Per-process bypass — recommended for one-shot runs:
+# (alternative) Invoke PowerShell directly with process-scoped bypass:
 PowerShell -ExecutionPolicy Bypass -File .\csp-agent.ps1 -C2 https://... -EnrollToken ent_...
 
-# (2) Per-session bypass:
+# (alternative) Per-session bypass:
 Set-ExecutionPolicy -Scope Process Bypass -Force
 .\csp-agent.ps1 -C2 https://... -EnrollToken ent_...
 
 # If Windows SmartScreen / "Unblock" pops up:
 Unblock-File .\csp-agent.ps1
+Unblock-File .\csp-agent.cmd
 ```
 
 **Windows — C# agent**
