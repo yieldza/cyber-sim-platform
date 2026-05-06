@@ -95,8 +95,23 @@ $('#generateForm').addEventListener('submit', async (e) => {
       method: 'POST',
       body: { file_type: fd.get('file_type'), note: fd.get('note') || null },
     });
-    $('#generateResult').textContent = JSON.stringify(res, null, 2);
+    $('#generateResult').textContent =
+      JSON.stringify(res, null, 2) +
+      '\n\n[downloading file to your browser…]';
     refreshLibrary();
+    // Auto-download — user requested file delivered immediately on Generate.
+    if (res.id) {
+      try {
+        await downloadArtifact(res.id);
+        $('#generateResult').textContent =
+          JSON.stringify(res, null, 2) + '\n\n✓ file downloaded.';
+      } catch (dlErr) {
+        $('#generateResult').textContent =
+          JSON.stringify(res, null, 2) +
+          '\n\n⚠ generated but auto-download failed: ' + dlErr.message +
+          '\n  use Library tab → Download to fetch manually.';
+      }
+    }
   } catch (err) {
     $('#generateResult').textContent = 'ERR: ' + err.message;
   }
@@ -119,20 +134,89 @@ async function refreshArtifactSelect() {
   }
 }
 
+// Toggle library/upload panes
+document.addEventListener('change', (e) => {
+  if (e.target?.name === 'source') {
+    const mode = e.target.value;
+    $('#sourceLibrary').classList.toggle('hidden', mode !== 'library');
+    $('#sourceUpload').classList.toggle('hidden', mode !== 'upload');
+  }
+});
+
+// Live preview of selected local file
+$('#mutateUpload')?.addEventListener('change', () => {
+  const f = $('#mutateUpload').files[0];
+  const out = $('#uploadPreview');
+  if (!f) { out.textContent = ''; return; }
+  if (f.size > 10 * 1024 * 1024) {
+    out.innerHTML = `<span style="color:var(--accent-2)">file too large: ${(f.size/1024/1024).toFixed(1)} MB (max 10 MB)</span>`;
+    return;
+  }
+  out.innerHTML = `selected: <code>${escapeHtml(f.name)}</code>  size=${f.size}B  type=${f.type || '?'}`;
+});
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const s = r.result;
+      // strip "data:...;base64," prefix
+      const idx = s.indexOf(',');
+      resolve(idx >= 0 ? s.slice(idx + 1) : s);
+    };
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+function inferFileType(filename) {
+  const ext = (filename.split('.').pop() || '').toLowerCase();
+  return ['eicar','com','pe','exe','pdf','apk','docx','zip','dll','bin'].includes(ext) ? ext : 'bin';
+}
+
 $('#mutateForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
-  const id = fd.get('artifact_id');
-  if (!id) { $('#mutateResult').textContent = 'pick an artifact'; return; }
+  const source = fd.get('source') || 'library';
   $('#mutateResult').textContent = '...';
+
   const body = { operation: fd.get('operation'), algo: fd.get('algo') };
   if (body.operation === 'append_random') body.n = Number(fd.get('n')) || 32;
   if (body.operation === 'pad') body.target_length = Number(fd.get('target_length'));
   if (body.operation === 'until_prefix') body.target_prefix = fd.get('target_prefix');
+
   try {
-    const res = await api(`/files/${id}/mutate`, { method: 'POST', body });
+    let res;
+    if (source === 'library') {
+      const id = fd.get('artifact_id');
+      if (!id) { $('#mutateResult').textContent = 'pick an artifact'; return; }
+      res = await api(`/files/${id}/mutate`, { method: 'POST', body });
+    } else {
+      const f = $('#mutateUpload').files[0];
+      if (!f) { $('#mutateResult').textContent = 'select a local file first'; return; }
+      if (f.size > 10 * 1024 * 1024) {
+        $('#mutateResult').textContent = 'file too large (10 MB max)';
+        return;
+      }
+      $('#mutateResult').textContent = 'reading file…';
+      const data_b64 = await fileToBase64(f);
+      $('#mutateResult').textContent = 'mutating…';
+      res = await api('/files/mutate-upload', {
+        method: 'POST',
+        body: {
+          ...body,
+          data_b64,
+          filename: f.name,
+          file_type_hint: inferFileType(f.name),
+        },
+      });
+    }
     $('#mutateResult').textContent = JSON.stringify(res, null, 2);
     refreshLibrary();
+    // Auto-download mutated result so user gets the file immediately
+    if (res.id) {
+      try { await downloadArtifact(res.id); } catch {}
+    }
   } catch (err) {
     $('#mutateResult').textContent = 'ERR: ' + err.message;
   }

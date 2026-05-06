@@ -60,11 +60,32 @@
 
       <div class="tab-panel" data-panel="mutate">
         <h3>Mutate file hash</h3>
-        <p class="muted">Pick a previously generated artifact and apply a hash mutation. Verifies whether your EDR uses static-hash or content/behavioral detection.</p>
+        <p class="muted">Pick a previously generated artifact <em>or</em> upload a file from your local drive, then apply a hash mutation. Verifies whether your EDR uses static-hash or content/behavioral detection.</p>
         <form id="mutateForm">
-          <label>Source artifact
-            <select name="artifact_id" id="mutateArtifact"></select>
-          </label>
+          <fieldset class="source-toggle">
+            <legend>Source</legend>
+            <label class="radio">
+              <input type="radio" name="source" value="library" checked />
+              <span>From library (previously generated)</span>
+            </label>
+            <label class="radio">
+              <input type="radio" name="source" value="upload" />
+              <span>Browse local drive</span>
+            </label>
+          </fieldset>
+
+          <div id="sourceLibrary" class="source-pane">
+            <label>Source artifact
+              <select name="artifact_id" id="mutateArtifact"></select>
+            </label>
+          </div>
+          <div id="sourceUpload" class="source-pane hidden">
+            <label>Local file (max 10 MB)
+              <input type="file" id="mutateUpload" name="upload_file" />
+            </label>
+            <div id="uploadPreview" class="muted upload-preview"></div>
+          </div>
+
           <label>Operation
             <select name="operation" id="mutateOp">
               <option value="append_random">append_random — append N random bytes</option>

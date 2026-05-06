@@ -37,6 +37,78 @@ filesRouter.post('/generate', async (req, res, next) => {
   }
 });
 
+// Mutate a file the operator just uploaded from local disk (not in library).
+// The uploaded bytes arrive as base64; the API stores the result as a new
+// artifact (no parent_id, since the source is external).
+filesRouter.post('/mutate-upload', async (req, res, next) => {
+  try {
+    const {
+      data_b64,
+      filename,
+      file_type_hint,
+      operation,
+      n,
+      algo,
+      target_length,
+      target_prefix,
+      max_iterations,
+    } = req.body || {};
+    if (!data_b64) return res.status(400).json({ error: 'data_b64 required' });
+    if (!operation) return res.status(400).json({ error: 'operation required' });
+
+    // Approx size check (base64 expands by 4/3); 10 MB binary cap aligns with worker.
+    const approxBytes = Math.floor((data_b64.length * 3) / 4);
+    if (approxBytes > 10 * 1024 * 1024) {
+      return res.status(413).json({ error: 'file too large (10 MB max)' });
+    }
+
+    const result = await callWorker('/mutate', {
+      data_b64,
+      operation,
+      n,
+      algo,
+      target_length,
+      target_prefix,
+      max_iterations,
+    });
+
+    // file_type_hint is best-effort metadata only — we don't validate it server-side.
+    const safeType = (file_type_hint || 'bin').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const saved = saveArtifact({
+      userId: req.user.id,
+      fileType: safeType || 'bin',
+      dataB64: result.data_b64,
+      hashes: result.after,
+      size: result.size,
+      sourceOp: 'mutate-upload',
+      metadata: {
+        operation,
+        iterations: result.iterations,
+        before: result.before,
+        original_filename: filename || null,
+      },
+      filename: filename ? `mutated-${filename}` : undefined,
+    });
+    audit(req.user.id, 'mutate-upload', {
+      id: saved.id,
+      original_filename: filename || null,
+      operation,
+      sha256: result.after.sha256,
+    }, req.ip);
+
+    res.json({
+      id: saved.id,
+      operation,
+      iterations: result.iterations,
+      before: result.before,
+      after: result.after,
+      size: result.size,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 filesRouter.post('/:id/mutate', async (req, res, next) => {
   try {
     const parent = getArtifact(req.params.id, req.user.id);

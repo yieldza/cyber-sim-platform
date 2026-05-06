@@ -270,6 +270,40 @@ td a {
   margin-bottom: 4px;
 }
 
+/* Mutate-tab source toggle */
+.source-toggle {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  margin-bottom: 6px;
+}
+.source-toggle legend {
+  font-size: 11px;
+  color: var(--muted);
+  padding: 0 6px;
+}
+.source-toggle .radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 18px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+.source-toggle .radio input { width: auto; margin: 0; }
+.source-pane { margin: 6px 0; }
+.upload-preview {
+  font-size: 11px;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  min-height: 14px;
+  background: var(--panel-2);
+}
+.upload-preview code { color: var(--accent); }
+
 .agent-controls {
   display: flex;
   align-items: center;
