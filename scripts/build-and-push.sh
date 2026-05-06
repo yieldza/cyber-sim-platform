@@ -45,12 +45,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Resolve service -> (context, tag) via case statement (bash 3.2 portable)
+# Resolve service -> (context, tag) via case statement (bash 3.2 portable).
+# API uses project-root context so the agent/ directory is reachable from
+# its Dockerfile; worker / web use their own subdirs.
 ctx_for() {
   case "$1" in
-    api)    echo "./api" ;;
+    api)    echo "." ;;
     worker) echo "./worker" ;;
     web)    echo "./web" ;;
+    *) echo "unknown service: $1" >&2; return 2 ;;
+  esac
+}
+
+dockerfile_for() {
+  case "$1" in
+    api)    echo "api/Dockerfile" ;;
+    worker) echo "" ;;   # default Dockerfile in ./worker
+    web)    echo "" ;;   # default Dockerfile in ./web
     *) echo "unknown service: $1" >&2; return 2 ;;
   esac
 }
@@ -79,19 +90,24 @@ fi
 for svc in $services; do
   ctx="$(ctx_for "$svc")"
   tag="$(tag_for "$svc")"
+  dockerfile="$(dockerfile_for "$svc")"
   ref="${IMAGE_REPO}:${tag}"
+  fflag=""
+  [[ -n "$dockerfile" ]] && fflag="-f $dockerfile"
   echo
   echo "==========> $svc  →  $ref   (mode=$mode$([[ $multiarch -eq 1 ]] && echo ", multiarch"))"
+  echo "             ctx=$ctx ${fflag}"
   if [[ $multiarch -eq 1 ]]; then
     pushflag="--load"
     [[ "$mode" == "push" ]] && pushflag="--push"
     docker buildx build \
       --platform linux/amd64,linux/arm64 \
+      $fflag \
       -t "$ref" \
       "$pushflag" \
       "$ctx"
   else
-    docker build -t "$ref" "$ctx"
+    docker build $fflag -t "$ref" "$ctx"
     if [[ "$mode" == "push" ]]; then
       docker push "$ref"
     fi

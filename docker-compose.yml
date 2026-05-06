@@ -32,7 +32,10 @@ services:
 
   api:
     image: ${IMAGE_REPO:-csp-local}:${TAG_API:-csp-api-dev}
-    build: ./api
+    # API build needs project-root context to bundle the agent/ folder.
+    build:
+      context: .
+      dockerfile: api/Dockerfile
     container_name: csp-api
     environment:
       - NODE_ENV=production

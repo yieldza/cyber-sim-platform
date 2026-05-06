@@ -574,16 +574,33 @@ async function viewAgentTask(id) {
   }
 }
 
-const AGENT_SOURCE_PATHS = {
-  python: '/agent/python/csp_agent.py',
-  powershell: '/agent/powershell/csp-agent.ps1',
-  csharp: '/agent/csharp/CspAgent.cs',
-};
-$$('a[data-agent-src]').forEach(a => {
-  a.onclick = (e) => {
-    e.preventDefault();
-    alert(`Agent source path in the repo:\n${AGENT_SOURCE_PATHS[a.dataset.agentSrc]}\n\nClone the repo or copy the file to your test endpoint, then run with the enroll token shown above.`);
-  };
+// Agent source download — fetches from API with auth header, then triggers
+// browser save. Replaces the previous "open repo path" alert.
+async function downloadAgentSource(lang) {
+  try {
+    const res = await fetch(`${API}/agents/download/${lang}`, {
+      headers: { authorization: 'Bearer ' + token() },
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j.error || `HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('content-disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/);
+    const name = m ? m[1] : `csp-agent-${lang}`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name; a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert('Agent download failed: ' + err.message);
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-agent-dl]');
+  if (btn) downloadAgentSource(btn.dataset.agentDl);
 });
 
 async function downloadArtifact(id) {

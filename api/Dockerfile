@@ -4,10 +4,13 @@ WORKDIR /app
 
 RUN apk add --no-cache python3 make g++ sqlite
 
-COPY package.json package-lock.json* ./
+# Build context is the project root so agent/ is reachable.
+COPY api/package.json api/package-lock.json* ./
 RUN npm install --omit=dev
 
-COPY src ./src
+COPY api/src ./src
+# Bundle the agent/ directory so /api/agents/download/:lang can serve them.
+COPY agent ./agent
 
 RUN mkdir -p /app/data /app/data/artifacts
 

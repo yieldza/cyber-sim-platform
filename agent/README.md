@@ -12,7 +12,46 @@ Three agent implementations target different test endpoints:
 
 1. Sign in to the operator UI and open the **Agents** tab.
 2. Click **New enroll token** — copy the `ent_…` value (TTL: 4 h, single-use).
-3. Drop the agent script onto the test endpoint and run:
+3. Click the matching **Download agent** button to save the script
+   directly from the C2 (no need to clone this repo).
+4. Drop the script onto the test endpoint and run (see permissions section
+   below for typical first-run gotchas).
+
+## Common first-run permission gotchas
+
+**Linux / macOS — Python agent**
+```bash
+chmod +x csp_agent.py                              # make executable
+./csp_agent.py --c2 https://csp.example.com ...
+# OR — never chmod, run via interpreter
+python3 csp_agent.py --c2 https://csp.example.com ...
+```
+
+**Windows — PowerShell agent**
+```powershell
+# Default ExecutionPolicy on Windows blocks unsigned scripts. Two options:
+# (1) Per-process bypass — recommended for one-shot runs:
+PowerShell -ExecutionPolicy Bypass -File .\csp-agent.ps1 -C2 https://... -EnrollToken ent_...
+
+# (2) Per-session bypass:
+Set-ExecutionPolicy -Scope Process Bypass -Force
+.\csp-agent.ps1 -C2 https://... -EnrollToken ent_...
+
+# If Windows SmartScreen / "Unblock" pops up:
+Unblock-File .\csp-agent.ps1
+```
+
+**Windows — C# agent**
+The repo ships the C# source. Build once, then deploy the produced .exe:
+```powershell
+dotnet new console -n CspAgent -o CspAgent
+copy CspAgent.cs CspAgent\Program.cs   # overwrite scaffolded Program.cs
+cd CspAgent
+dotnet publish -c Release -r win-x64 --self-contained false /p:PublishSingleFile=true
+.\bin\Release\net6.0\win-x64\publish\CspAgent.exe --c2 https://... --enroll-token ent_...
+```
+
+
 
 ```bash
 # Linux / macOS

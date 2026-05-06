@@ -18,6 +18,9 @@ from .converter import SUPPORTED_TARGETS, detect_format, polyglot_zip_pdf, rewra
 from .generators import (
     EICAR_STRING,
     com_file,
+    dropper_ps1,
+    dropper_py,
+    dropper_sh,
     eicar_apk,
     eicar_docx,
     eicar_pdf,
@@ -57,7 +60,10 @@ def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid api key")
 
 
-FileType = Literal["eicar", "com", "pe", "pdf", "apk", "docx"]
+FileType = Literal[
+    "eicar", "com", "pe", "pdf", "apk", "docx",
+    "dropper-ps1", "dropper-sh", "dropper-py",
+]
 GENERATORS = {
     "eicar": raw_eicar,
     "com": com_file,
@@ -65,6 +71,9 @@ GENERATORS = {
     "pdf": eicar_pdf,
     "apk": eicar_apk,
     "docx": eicar_docx,
+    "dropper-ps1": dropper_ps1,
+    "dropper-sh": dropper_sh,
+    "dropper-py": dropper_py,
 }
 
 

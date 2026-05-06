@@ -42,12 +42,19 @@
         <form id="generateForm">
           <label>File type
             <select name="file_type">
-              <option value="eicar">eicar (raw 68-byte signature)</option>
-              <option value="com">com (DOS .COM)</option>
-              <option value="pe">pe (Windows PE32 .exe)</option>
-              <option value="pdf">pdf</option>
-              <option value="apk">apk</option>
-              <option value="docx">docx</option>
+              <optgroup label="EICAR-bearing artifacts (static-signature tests)">
+                <option value="eicar">eicar (raw 68-byte signature)</option>
+                <option value="com">com (DOS .COM)</option>
+                <option value="pe">pe (Windows PE32 .exe)</option>
+                <option value="pdf">pdf</option>
+                <option value="apk">apk</option>
+                <option value="docx">docx</option>
+              </optgroup>
+              <optgroup label="Behavioural droppers — EDR / Cortex XDR (download + execute chain)">
+                <option value="dropper-ps1">dropper-ps1 (PowerShell, Windows)</option>
+                <option value="dropper-sh">dropper-sh (bash, Linux/macOS)</option>
+                <option value="dropper-py">dropper-py (Python, cross-platform)</option>
+              </optgroup>
             </select>
           </label>
           <label>Note (optional, audit only)
@@ -189,10 +196,25 @@
         <pre id="agentResult" class="result"></pre>
 
         <h4 class="section-h">Download agent</h4>
-        <p class="muted">
-          Source: <a href="#" data-agent-src="python">Python (Linux/macOS)</a> ·
-          <a href="#" data-agent-src="powershell">PowerShell (Windows)</a> ·
-          <a href="#" data-agent-src="csharp">C# / .NET (Windows)</a>
+        <p class="muted">Click to download the agent script directly — no need to clone the repo. Each download is logged in audit_log.</p>
+        <div class="agent-downloads">
+          <button type="button" data-agent-dl="python">
+            <span class="dl-lang">Python</span>
+            <span class="dl-meta">Linux / macOS · Python 3.9+ · stdlib only</span>
+          </button>
+          <button type="button" data-agent-dl="powershell">
+            <span class="dl-lang">PowerShell</span>
+            <span class="dl-meta">Windows · PS 5.1+ · ExecutionPolicy Bypass for unsigned</span>
+          </button>
+          <button type="button" data-agent-dl="csharp">
+            <span class="dl-lang">C# / .NET</span>
+            <span class="dl-meta">Windows · .NET 6+ · build with `dotnet publish`</span>
+          </button>
+        </div>
+        <p class="muted">After download:<br>
+          • Python — <code>chmod +x csp_agent.py</code> (or run via <code>python3 csp_agent.py …</code>)<br>
+          • PowerShell — <code>powershell -ExecutionPolicy Bypass -File .\csp-agent.ps1 -C2 … -EnrollToken …</code><br>
+          • C# — see header comments in the .cs file for <code>dotnet publish</code> build steps.
         </p>
       </div>
 
@@ -213,6 +235,10 @@
       Use only on systems and networks you are authorized to test.
     </footer>
   </main>
+
+  <div class="brand-footer">
+    Powered By <span class="brand-name">GizmoPK</span>
+  </div>
 
   <script src="app.js"></script>
 </body>

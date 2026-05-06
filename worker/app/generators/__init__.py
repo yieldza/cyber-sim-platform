@@ -3,6 +3,7 @@ from .pe import minimal_pe
 from .pdf import eicar_pdf
 from .apk import eicar_apk
 from .docx import eicar_docx
+from .dropper import dropper_ps1, dropper_sh, dropper_py
 
 __all__ = [
     "EICAR_STRING",
@@ -12,4 +13,7 @@ __all__ = [
     "eicar_pdf",
     "eicar_apk",
     "eicar_docx",
+    "dropper_ps1",
+    "dropper_sh",
+    "dropper_py",
 ]

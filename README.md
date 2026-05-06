@@ -252,6 +252,74 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.3.0 — 2026-05-06
+
+Behavioural detection coverage + better agent UX + branding:
+
+- **Behavioural droppers (Generate tab).** Three new file types produce
+  ready-to-run scripts that exercise the *download → drop → execute*
+  chain that EDR / Cortex XDR look at when static-hash blocking is
+  bypassed:
+  - `dropper-ps1` — PowerShell, Windows
+  - `dropper-sh`  — bash, Linux/macOS
+  - `dropper-py`  — Python, cross-platform
+
+  Each script downloads the official EICAR file from `secure.eicar.org`,
+  drops it to `%TEMP%` / `$TMPDIR`, attempts to execute, then cleans up.
+  AV/EDR is expected to intercept on write or on exec — the *behavioural
+  signals* (process spawn, outbound 443, file_create_executable, spawn
+  from new file) are what we are testing for. Each generation embeds a
+  random 12-hex session id so the script's own SHA-256 is unique
+  per-call (combine with the Mutate-hash tab for static + behavioural
+  coverage).
+
+- **Agent download from the Web UI (Agents tab).** New
+  `GET /api/agents/download/:lang` route serves the agent source
+  (`python` / `powershell` / `csharp`) directly from the C2 — operators
+  no longer need to clone the repo. The download endpoint also injects
+  a header comment with the typical first-run permission fix:
+  - Python: `chmod +x csp_agent.py` (or run via `python3 csp_agent.py …`)
+  - PowerShell: `powershell -ExecutionPolicy Bypass -File .\csp-agent.ps1 …`
+  - C#: `dotnet publish` recipe in the file's prelude
+
+  Replaces the previous `alert()`-based "open the path in repo" UX.
+  Each download is recorded in `audit_log` (action `agent_source_download`).
+
+- **Branding footer.** "Powered By GizmoPK" added to the bottom of every
+  page.
+
+- **Internal: API build context moved to project root** so the API image
+  can bundle the `agent/` directory at `/app/agent`. The build script
+  and docker-compose now pass `-f api/Dockerfile` with `context: .`
+  for that one service; worker and web are unchanged.
+
+Image tags published to Docker Hub (multiarch `linux/amd64` + `linux/arm64`):
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.3.0       327 MB
+docker.io/124000pk/yieldpk:csp-worker-0.3.0    330 MB
+docker.io/124000pk/yieldpk:csp-web-0.3.0        40 MB
+```
+
+`v0.1.0` and `v0.2.0` tags remain on Docker Hub for pinning.
+
+### How to update an existing deployment to v0.3.0
+
+```bash
+cd /path/to/csp
+sed -i.bak \
+  -e 's/^TAG_API=.*/TAG_API=csp-api-0.3.0/' \
+  -e 's/^TAG_WORKER=.*/TAG_WORKER=csp-worker-0.3.0/' \
+  -e 's/^TAG_WEB=.*/TAG_WEB=csp-web-0.3.0/' \
+  .env
+
+docker compose pull           # pulls the 3 new images
+docker compose up -d          # recreates containers
+docker compose ps             # confirm all three are Up
+```
+
+**No DB migration required** — schema is unchanged across 0.1 → 0.2 → 0.3.
+
 ### v0.2.0 — 2026-05-06
 
 UX improvements on the Generate and Mutate tabs:

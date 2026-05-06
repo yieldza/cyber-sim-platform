@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { v4 as uuid } from 'uuid';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { audit, db } from '../db/index.js';
 import { requireAuth } from '../middleware/auth.js';
@@ -13,11 +16,72 @@ import {
 } from '../services/agentAuth.js';
 import { callWorker } from '../services/workerClient.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// Inside the API image agent/ is bundled at /app/agent ; in dev it lives
+// alongside the api directory.
+const AGENT_DIR = process.env.AGENT_DIR
+  || (existsSync('/app/agent') ? '/app/agent' : join(__dirname, '../../../agent'));
+
+const AGENT_FILES = {
+  python:     { path: 'python/csp_agent.py',          filename: 'csp_agent.py',     mime: 'text/x-python' },
+  powershell: { path: 'powershell/csp-agent.ps1',     filename: 'csp-agent.ps1',    mime: 'application/x-powershell' },
+  csharp:     { path: 'csharp/CspAgent.cs',           filename: 'CspAgent.cs',      mime: 'text/x-csharp' },
+};
+
 export const operatorAgentsRouter = Router();   // /api/agents/*  (operator UI)
 export const agentChannelRouter = Router();     // /agent-c2/*    (agent endpoints)
 
 // ─── operator-side, JWT-auth ───────────────────────────────────
 operatorAgentsRouter.use(requireAuth);
+
+// ----- Agent source download (operator-side, JWT-auth) -----
+// GET /api/agents/download/:lang  →  raw script bytes, with the right
+// Content-Disposition so the browser saves it. Removes the manual "copy
+// from repo" step in the previous UI.
+operatorAgentsRouter.get('/download/:lang', (req, res) => {
+  const meta = AGENT_FILES[req.params.lang];
+  if (!meta) return res.status(404).json({ error: 'unknown agent language' });
+  const fullPath = join(AGENT_DIR, meta.path);
+  if (!existsSync(fullPath)) {
+    return res.status(500).json({ error: 'agent source missing on server', path: fullPath });
+  }
+  let body = readFileSync(fullPath, 'utf8');
+
+  // Inject a header note about chmod / ExecutionPolicy so users hit fewer
+  // permission walls when running the freshly-downloaded script.
+  if (req.params.lang === 'python') {
+    // Insert chmod hint as a real comment between shebang and the docstring.
+    const lines = body.split('\n');
+    const insertAt = lines[0].startsWith('#!') ? 1 : 0;
+    lines.splice(insertAt, 0,
+      '# After saving on Linux/macOS:  chmod +x csp_agent.py',
+      '# Or run without changing perms: python3 csp_agent.py --c2 ... --enroll-token ...',
+      '');
+    body = lines.join('\n');
+  } else if (req.params.lang === 'powershell') {
+    body =
+      "# To run an unsigned script on Windows without modifying machine policy:\n" +
+      "#   PowerShell -ExecutionPolicy Bypass -File .\\csp-agent.ps1 -C2 ... -EnrollToken ...\n" +
+      "# or, in an interactive session:  Set-ExecutionPolicy -Scope Process Bypass\n\n" +
+      body;
+  } else if (req.params.lang === 'csharp') {
+    body =
+      "// Build instructions:\n" +
+      "//   dotnet new console -n CspAgent -o CspAgent\n" +
+      "//   cp CspAgent.cs CspAgent/Program.cs\n" +
+      "//   cd CspAgent && dotnet publish -c Release -r win-x64 \\\n" +
+      "//     --self-contained false /p:PublishSingleFile=true\n" +
+      "// Then run the produced .exe.\n\n" +
+      body;
+  }
+
+  audit(req.user.id, 'agent_source_download',
+    { lang: req.params.lang, filename: meta.filename }, req.ip);
+
+  res.setHeader('Content-Type', meta.mime);
+  res.setHeader('Content-Disposition', `attachment; filename="${meta.filename}"`);
+  res.send(body);
+});
 
 operatorAgentsRouter.post('/enroll-token', (req, res) => {
   const { label } = req.body || {};

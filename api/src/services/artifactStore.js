@@ -14,6 +14,11 @@ const FILE_TYPE_EXT = {
   apk: 'apk',
   docx: 'docx',
   zip: 'zip',
+  // Behavioral droppers — text scripts, served with the matching extension
+  // so the operator's host honours the right interpreter / shebang.
+  'dropper-ps1': 'ps1',
+  'dropper-sh': 'sh',
+  'dropper-py': 'py',
 };
 
 export function saveArtifact({

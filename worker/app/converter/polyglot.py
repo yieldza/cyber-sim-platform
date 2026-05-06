@@ -17,15 +17,21 @@ format ambiguity; they help blue teams measure detection coverage gaps.
 from __future__ import annotations
 
 from ..generators import (
+    com_file,
+    dropper_ps1,
+    dropper_py,
+    dropper_sh,
     eicar_apk,
     eicar_docx,
     eicar_pdf,
     minimal_pe,
     raw_eicar,
-    com_file,
 )
 
-SUPPORTED_TARGETS = ("eicar", "com", "pe", "pdf", "apk", "docx")
+SUPPORTED_TARGETS = (
+    "eicar", "com", "pe", "pdf", "apk", "docx",
+    "dropper-ps1", "dropper-sh", "dropper-py",
+)
 
 
 def detect_format(data: bytes) -> str:
@@ -61,6 +67,12 @@ def rewrap_eicar(target: str) -> bytes:
         return eicar_apk()
     if target == "docx":
         return eicar_docx()
+    if target == "dropper-ps1":
+        return dropper_ps1()
+    if target == "dropper-sh":
+        return dropper_sh()
+    if target == "dropper-py":
+        return dropper_py()
     raise AssertionError("unreachable")  # pragma: no cover
 
 
