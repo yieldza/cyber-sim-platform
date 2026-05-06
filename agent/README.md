@@ -17,6 +17,13 @@ Three agent implementations target different test endpoints:
 4. Drop the script onto the test endpoint and run (see permissions section
    below for typical first-run gotchas).
 
+## Per-platform deep dives
+
+- **Windows quickstart (PowerShell + C#):**
+  [`docs/agent-windows.md`](../docs/agent-windows.md) — step-by-step
+  enrollment, ExecutionPolicy fixes, NSSM / Task Scheduler service deploy,
+  and a list of techniques that pair well with the Windows agent.
+
 ## Common first-run permission gotchas
 
 **Linux / macOS — Python agent**
