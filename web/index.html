@@ -55,6 +55,12 @@
                 <option value="dropper-sh">dropper-sh (bash, Linux/macOS)</option>
                 <option value="dropper-py">dropper-py (Python, cross-platform)</option>
               </optgroup>
+              <optgroup label="ATT&CK script-host carriers (Windows EDR / XDR)">
+                <option value="hta">hta · T1218.005 Mshta abuse</option>
+                <option value="vbs">vbs · T1059.005 VBScript</option>
+                <option value="js">js · T1059.007 JScript / WSH</option>
+                <option value="html-smuggle">html-smuggle · T1027.006 HTML smuggling</option>
+              </optgroup>
             </select>
           </label>
           <label>Note (optional, audit only)
@@ -225,10 +231,23 @@
 
       <div class="tab-panel" data-panel="library">
         <h3>Artifacts</h3>
-        <button id="refreshLibrary">Refresh</button>
+        <div class="library-toolbar">
+          <label class="inline">
+            <span>Type</span>
+            <select id="libFilterType"><option value="">all</option></select>
+          </label>
+          <label class="inline">
+            <span>Source op</span>
+            <select id="libFilterOp"><option value="">all</option></select>
+          </label>
+          <button id="refreshLibrary" type="button">Refresh</button>
+          <button id="clearFilteredBtn" type="button" class="danger" disabled>Clear filtered</button>
+          <button id="clearAllBtn" type="button" class="danger">Clear ALL</button>
+          <span id="libCount" class="muted"></span>
+        </div>
         <table id="libraryTable">
           <thead>
-            <tr><th>Created</th><th>Type</th><th>Op</th><th>Size</th><th>SHA-256</th><th></th></tr>
+            <tr><th>Created</th><th>Type</th><th>Op</th><th>Size</th><th>SHA-256</th><th>Actions</th></tr>
           </thead>
           <tbody></tbody>
         </table>

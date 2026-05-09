@@ -23,7 +23,11 @@ from .generators import (
     dropper_sh,
     eicar_apk,
     eicar_docx,
+    eicar_hta,
+    eicar_html_smuggle,
+    eicar_js,
     eicar_pdf,
+    eicar_vbs,
     minimal_pe,
     raw_eicar,
 )
@@ -63,6 +67,7 @@ def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
 FileType = Literal[
     "eicar", "com", "pe", "pdf", "apk", "docx",
     "dropper-ps1", "dropper-sh", "dropper-py",
+    "hta", "vbs", "js", "html-smuggle",
 ]
 GENERATORS = {
     "eicar": raw_eicar,
@@ -74,6 +79,11 @@ GENERATORS = {
     "dropper-ps1": dropper_ps1,
     "dropper-sh": dropper_sh,
     "dropper-py": dropper_py,
+    # T1218.005 / T1059.005 / T1059.007 / T1027.006
+    "hta": eicar_hta,
+    "vbs": eicar_vbs,
+    "js": eicar_js,
+    "html-smuggle": eicar_html_smuggle,
 }
 
 

@@ -177,6 +177,44 @@ td a {
   border-radius: 3px;
 }
 
+.library-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin: 12px 0;
+}
+.library-toolbar label.inline {
+  flex-direction: column;
+  font-size: 11px;
+  color: var(--muted);
+}
+.library-toolbar label.inline > span { margin-bottom: 2px; }
+.library-toolbar select { min-width: 130px; }
+.library-toolbar #libCount { margin-left: auto; font-size: 11px; }
+button.danger {
+  background: transparent;
+  border: 1px solid var(--accent-2);
+  color: var(--accent-2);
+}
+button.danger:hover { background: var(--accent-2); color: #0b1020; }
+button.danger:disabled { opacity: .4; cursor: not-allowed; background: transparent; color: var(--muted); border-color: var(--border); }
+td .row-action {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-right: 4px;
+}
+td .row-action.danger {
+  border-color: var(--accent-2);
+  color: var(--accent-2);
+}
+td .row-action.danger:hover { background: var(--accent-2); color: #0b1020; }
+
 .section-h {
   margin: 24px 0 8px;
   color: var(--accent);

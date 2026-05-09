@@ -23,7 +23,11 @@ from ..generators import (
     dropper_sh,
     eicar_apk,
     eicar_docx,
+    eicar_hta,
+    eicar_html_smuggle,
+    eicar_js,
     eicar_pdf,
+    eicar_vbs,
     minimal_pe,
     raw_eicar,
 )
@@ -31,6 +35,7 @@ from ..generators import (
 SUPPORTED_TARGETS = (
     "eicar", "com", "pe", "pdf", "apk", "docx",
     "dropper-ps1", "dropper-sh", "dropper-py",
+    "hta", "vbs", "js", "html-smuggle",
 )
 
 
@@ -73,6 +78,14 @@ def rewrap_eicar(target: str) -> bytes:
         return dropper_sh()
     if target == "dropper-py":
         return dropper_py()
+    if target == "hta":
+        return eicar_hta()
+    if target == "vbs":
+        return eicar_vbs()
+    if target == "js":
+        return eicar_js()
+    if target == "html-smuggle":
+        return eicar_html_smuggle()
     raise AssertionError("unreachable")  # pragma: no cover
 
 

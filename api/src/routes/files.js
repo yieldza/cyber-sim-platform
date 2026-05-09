@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
-import { audit } from '../db/index.js';
+import { audit, db } from '../db/index.js';
 import { callWorker } from '../services/workerClient.js';
 import {
   saveArtifact,
   getArtifact,
   listArtifacts,
+  deleteArtifact,
+  deleteArtifactsBulk,
 } from '../services/artifactStore.js';
 
 export const filesRouter = Router();
@@ -13,7 +15,49 @@ export const filesRouter = Router();
 filesRouter.use(requireAuth);
 
 filesRouter.get('/', (req, res) => {
-  res.json({ artifacts: listArtifacts(req.user.id) });
+  const { file_type, source_op, limit } = req.query;
+  res.json({
+    artifacts: listArtifacts(req.user.id, {
+      fileType: file_type || undefined,
+      sourceOp: source_op || undefined,
+      limit: Math.min(parseInt(limit, 10) || 200, 500),
+    }),
+  });
+});
+
+// Distinct file_type / source_op values for the UI filter dropdowns.
+filesRouter.get('/facets', (req, res) => {
+  const file_types = db.prepare(
+    'SELECT DISTINCT file_type FROM artifacts WHERE user_id = ? ORDER BY file_type'
+  ).all(req.user.id).map(r => r.file_type);
+  const source_ops = db.prepare(
+    'SELECT DISTINCT source_op FROM artifacts WHERE user_id = ? ORDER BY source_op'
+  ).all(req.user.id).map(r => r.source_op);
+  res.json({ file_types, source_ops });
+});
+
+// Bulk delete — declared BEFORE /:id so the static path wins the route match.
+// Body (or query): { file_type?, source_op?, all?: true }
+filesRouter.delete('/', (req, res) => {
+  const filters = { ...req.query, ...req.body };
+  if (!filters.file_type && !filters.source_op && !(filters.all === true || filters.all === 'true')) {
+    return res.status(400).json({
+      error: 'specify file_type, source_op, or all=true',
+    });
+  }
+  const result = deleteArtifactsBulk(req.user.id, {
+    fileType: filters.file_type,
+    sourceOp: filters.source_op,
+  });
+  audit(req.user.id, 'artifacts_bulk_delete', { ...filters, deleted: result.deleted }, req.ip);
+  res.json(result);
+});
+
+filesRouter.delete('/:id', (req, res) => {
+  const r = deleteArtifact(req.params.id, req.user.id);
+  if (!r.deleted) return res.status(404).json({ error: 'not found' });
+  audit(req.user.id, 'artifact_delete', { id: req.params.id }, req.ip);
+  res.json(r);
 });
 
 filesRouter.post('/generate', async (req, res, next) => {

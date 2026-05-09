@@ -252,6 +252,99 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.4.0 — 2026-05-09
+
+Three feature areas plus one bug fix.
+
+**Bug fix — agent beacon `500 Internal Server Error`**
+
+User report (PowerShell agent on Windows):
+```
+INFO  registered agent_id=agt_5bd0311fb47a4ef8 interval=30s
+WARN  loop error: The remote server returned an error: (500) Internal Server Error.
+```
+
+Root cause: `CREATE TABLE IF NOT EXISTS` does **not** ALTER pre-existing
+tables. Deployments that started on v0.1.0 have an `agents` table missing
+the v0.3.x columns (`secret_hash`, `beacon_count`, `status`,
+`agent_version`, `internal_ip`, `external_ip`). Registration succeeded
+because the INSERT only references columns the v0.1.0 schema also had —
+but the very next beacon's `UPDATE agents SET beacon_count = beacon_count + 1`
+crashed with `no such column: beacon_count` and surfaced as 500.
+
+Fix in `api/src/db/index.js`: an `ensureColumn(table, name, ddl)` helper
+runs at startup, calls `PRAGMA table_info`, and `ALTER TABLE ADD COLUMN`s
+anything missing — additive only, idempotent. Covers all v0.3.x columns
+on `agents` and `agent_tasks`. `requireAgent` middleware now also wraps
+its DB call in try/catch and returns a JSON `{error, detail}` instead of
+hitting the generic 500 path. Server-side error handler logs request
+path + stack on 5xx.
+
+**Library — bulk delete + filter**
+
+The artifact library was append-only; users had to reset the whole DB
+volume to clean up. v0.4.0 adds:
+
+- `GET    /api/files/?file_type=&source_op=` — filtered list
+- `GET    /api/files/facets`                  — distinct values for the
+  filter dropdowns
+- `DELETE /api/files/:id`                     — single artifact
+- `DELETE /api/files/`                        — bulk, body / query:
+  `{file_type?, source_op?, all?: true}` (must specify at least one)
+
+Web UI Library tab now has: Type / Source-op dropdowns, **Refresh**,
+**Clear filtered** (enabled when any filter is set), **Clear ALL** (two
+confirmations), and per-row **download** + **delete** buttons. Each
+deletion removes the on-disk file *and* nulls out `parent_id` of any
+child mutation so the FK doesn't block the delete.
+
+**New file generators — ATT&CK script-host carriers**
+
+Four new `file_type` values for the Generate tab, each carrying the
+EICAR signature embedded as a comment / block plus a benign script body
+that exercises a different EDR / XDR detection rule:
+
+| `file_type`       | Technique  | Extension | Tests                                          |
+|-------------------|------------|-----------|------------------------------------------------|
+| `hta`             | T1218.005  | `.hta`    | Mshta abuse — `mshta.exe csp.hta`              |
+| `vbs`             | T1059.005  | `.vbs`    | VBScript via `wscript`/`cscript`               |
+| `js`              | T1059.007  | `.js`     | JScript via Windows Script Host                |
+| `html-smuggle`    | T1027.006  | `.html`   | HTML smuggling — Blob + auto-click drops EICAR |
+
+Each generation embeds a random 12-hex session id so the file's hash is
+unique per call. Total generators: **13** (6 EICAR + 3 droppers + 4 ATT&CK).
+
+Image tags published to Docker Hub (multiarch `linux/amd64` + `linux/arm64`):
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.4.0       327 MB
+docker.io/124000pk/yieldpk:csp-worker-0.4.0    330 MB
+docker.io/124000pk/yieldpk:csp-web-0.4.0        40 MB
+```
+
+### How to update an existing deployment to v0.4.0
+
+```bash
+cd /path/to/csp
+sed -i.bak \
+  -e 's/^TAG_API=.*/TAG_API=csp-api-0.4.0/' \
+  -e 's/^TAG_WORKER=.*/TAG_WORKER=csp-worker-0.4.0/' \
+  -e 's/^TAG_WEB=.*/TAG_WEB=csp-web-0.4.0/' \
+  .env
+
+docker compose pull && docker compose up -d
+docker compose logs api | grep -E '(db migrate|listening)'
+# expect lines like:
+#   [db migrate] agents.beacon_count added
+#   [db migrate] agents.status added
+#   [api] listening on :8080
+```
+
+The migration runs on first start of the v0.4.0 API container. After it
+completes, agents that already registered against the broken schema will
+beacon successfully without re-enrollment (their `agent_id` and
+`secret_hash` are still in the DB).
+
 ### v0.3.1 — 2026-05-06
 
 Fixes the "running scripts is disabled on this system" prompt that

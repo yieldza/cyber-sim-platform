@@ -49,10 +49,12 @@ app.use('/api/runs', runsRouter);
 app.use('/api/agents', operatorAgentsRouter);
 app.use('/agent-c2', agentChannelRouter);
 
-// Centralized error handler
-app.use((err, _req, res, _next) => {
+// Centralized error handler — log path + stack on 500 so server-side bugs
+// are debuggable without extra setup.
+app.use((err, req, res, _next) => {
   const status = err.status || 500;
-  console.error(`[err ${status}] ${err.message}`);
+  console.error(`[err ${status}] ${req.method} ${req.originalUrl}: ${err.message}`);
+  if (status >= 500) console.error(err.stack);
   res.status(status).json({ error: err.message });
 });
 

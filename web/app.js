@@ -244,11 +244,66 @@ $('#convertForm').addEventListener('submit', async (e) => {
 });
 
 // --- Library ---
-$('#refreshLibrary').addEventListener('click', refreshLibrary);
+$('#refreshLibrary').addEventListener('click', () => refreshLibrary());
+$('#libFilterType').addEventListener('change', () => refreshLibrary());
+$('#libFilterOp').addEventListener('change', () => refreshLibrary());
+
+$('#clearFilteredBtn').addEventListener('click', async () => {
+  const ft = $('#libFilterType').value;
+  const op = $('#libFilterOp').value;
+  if (!ft && !op) return;
+  const desc = `${ft ? 'type=' + ft : ''}${ft && op ? ' ' : ''}${op ? 'op=' + op : ''}`;
+  if (!confirm(`Delete ALL artifacts matching ${desc}? This removes both DB rows and the stored files.`)) return;
+  try {
+    const r = await api('/files/', {
+      method: 'DELETE',
+      body: { file_type: ft || undefined, source_op: op || undefined },
+    });
+    alert(`Deleted ${r.deleted} artifact(s).`);
+    refreshLibrary();
+  } catch (err) {
+    alert('Bulk delete failed: ' + err.message);
+  }
+});
+
+$('#clearAllBtn').addEventListener('click', async () => {
+  if (!confirm('Delete ALL of YOUR artifacts? Removes DB rows + stored files. This is irreversible.')) return;
+  if (!confirm('Really? Last chance to cancel.')) return;
+  try {
+    const r = await api('/files/', {
+      method: 'DELETE',
+      body: { all: true },
+    });
+    alert(`Deleted ${r.deleted} artifact(s).`);
+    refreshLibrary();
+  } catch (err) {
+    alert('Clear-all failed: ' + err.message);
+  }
+});
+
+async function loadFacets() {
+  try {
+    const f = await api('/files/facets');
+    const fillSelect = (id, values) => {
+      const cur = $(id).value;
+      $(id).innerHTML = '<option value="">all</option>' +
+        values.map(v => `<option value="${v}">${v}</option>`).join('');
+      if (values.includes(cur)) $(id).value = cur;
+    };
+    fillSelect('#libFilterType', f.file_types);
+    fillSelect('#libFilterOp', f.source_ops);
+  } catch (err) { console.error(err); }
+}
 
 async function refreshLibrary() {
   try {
-    const res = await api('/files/');
+    const params = new URLSearchParams();
+    const ft = $('#libFilterType').value;
+    const op = $('#libFilterOp').value;
+    if (ft) params.set('file_type', ft);
+    if (op) params.set('source_op', op);
+    const qs = params.toString();
+    const res = await api('/files/' + (qs ? '?' + qs : ''));
     const tbody = $('#libraryTable tbody');
     tbody.innerHTML = '';
     for (const a of res.artifacts) {
@@ -259,19 +314,35 @@ async function refreshLibrary() {
         <td>${a.source_op}</td>
         <td>${a.size}</td>
         <td><code>${a.sha256.slice(0, 24)}…</code></td>
-        <td><a href="${API}/files/${a.id}/download?_t=${token()}" target="_blank" data-id="${a.id}">download</a></td>
+        <td>
+          <button class="row-action" data-act="dl" data-id="${a.id}">download</button>
+          <button class="row-action danger" data-act="rm" data-id="${a.id}">delete</button>
+        </td>
       `;
+      tr.querySelectorAll('button[data-act]').forEach(b => {
+        b.onclick = () => {
+          if (b.dataset.act === 'dl') downloadArtifact(b.dataset.id);
+          else if (b.dataset.act === 'rm') deleteArtifactRow(b.dataset.id);
+        };
+      });
       tbody.appendChild(tr);
     }
-    // Add auth header to download links via fetch+blob
-    $$('a[data-id]', tbody).forEach(a => {
-      a.removeAttribute('href');
-      a.style.cursor = 'pointer';
-      a.onclick = (e) => { e.preventDefault(); downloadArtifact(a.dataset.id); };
-    });
+    $('#libCount').textContent = `${res.artifacts.length} item(s)`;
+    $('#clearFilteredBtn').disabled = !ft && !op;
     refreshArtifactSelect();
+    loadFacets();
   } catch (err) {
     console.error(err);
+  }
+}
+
+async function deleteArtifactRow(id) {
+  if (!confirm(`Delete artifact ${id.slice(0, 8)}…?`)) return;
+  try {
+    await api('/files/' + id, { method: 'DELETE' });
+    refreshLibrary();
+  } catch (err) {
+    alert('Delete failed: ' + err.message);
   }
 }
 

@@ -47,7 +47,13 @@ export function requireAgent(req, res, next) {
   const id = req.headers['x-agent-id'];
   const secret = req.headers['x-agent-secret'];
   if (!id || !secret) return res.status(401).json({ error: 'agent credentials required' });
-  const agent = db.prepare('SELECT * FROM agents WHERE id = ? AND status = "active"').get(id);
+  let agent;
+  try {
+    agent = db.prepare('SELECT * FROM agents WHERE id = ? AND status = ?').get(id, 'active');
+  } catch (err) {
+    console.error(`[requireAgent] db error for agent_id=${id}: ${err.message}`);
+    return res.status(500).json({ error: 'auth check failed', detail: err.message });
+  }
   if (!agent || !verifyAgentSecret(secret, agent.secret_hash)) {
     return res.status(401).json({ error: 'invalid agent credentials' });
   }
