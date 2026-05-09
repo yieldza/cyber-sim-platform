@@ -1,18 +1,32 @@
-"""Behavioral test droppers for EDR / Cortex XDR validation.
+"""Behavioural test droppers for EDR / Cortex XDR validation.
 
-Static-hash signatures only catch known files. Behavioral engines flag the
-*chain* of actions: process spawn → outbound network → write to a temp
-path → spawn-from-new-file. These droppers reproduce that chain with the
+Static-hash signatures only catch known files. Behavioural engines flag the
+*chain* of actions: process spawn -> outbound network -> write to a temp
+path -> spawn-from-new-file. These droppers reproduce that chain with the
 official EICAR test URL as the payload — fully detectable, but harmless.
 
 Each generation embeds a random session id so the script's own hash differs
 every time (lets the operator combine with the Mutate-hash tab for static
 + behavioural coverage tests).
+
+v0.4.2 — embed EICAR in **four** distinct file regions of every script:
+
+  1. header comment    (raw signature near the top of the file)
+  2. string variable   (raw signature as the value of $CSP_EICAR / etc.)
+  3. multi-line block  (raw signature in a here-string / triple-quoted)
+  4. trailing comment  (raw signature near EOF)
+
+Reason: Cortex XDR / WildFire and similar EDRs treat single-occurrence
+EICAR inside a comment block at the top of a script as low signal and
+sometimes skip the static rule. Multi-location embedding ensures the
+signature is hit by both stream scanners and section-extracting scanners.
 """
 from __future__ import annotations
 
 import secrets
 from datetime import datetime, timezone
+
+from .eicar import EICAR_STRING
 
 EICAR_URL = "https://secure.eicar.org/eicar.com.txt"
 
@@ -26,6 +40,11 @@ _BEHAVIORAL_NOTE = (
     "  6. AV intercept:    on-write or on-exec EICAR detection (expected)"
 )
 
+# EICAR as a Python str (single backslash kept) — emitted verbatim into
+# the generated script source so the file bytes contain the canonical
+# 68-byte signature.
+_EICAR = EICAR_STRING.decode("ascii")
+
 
 def _session_id() -> str:
     return secrets.token_hex(6)
@@ -35,16 +54,31 @@ def _ts() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# ─── PowerShell — T1059.001 carrier on .ps1 ───────────────────────────────
 def dropper_ps1() -> bytes:
     """PowerShell behavioural-test dropper for Windows endpoints."""
     sid = _session_id()
+    note_pref = _BEHAVIORAL_NOTE.replace("\n", "\n# ")
     body = f"""# CSP — behavioural-test dropper (session {sid}, generated {_ts()})
-# {_BEHAVIORAL_NOTE.replace(chr(10), chr(10) + '# ')}
+# {note_pref}
 #
 # SAFETY: the only payload is the official EICAR test signature from
 # secure.eicar.org. AV/EDR will intercept the write or the exec — that is
 # the intended outcome of this test. Run on systems you own / are
 # authorised to test.
+#
+# === STATIC EICAR signature (raw header for AV/EDR) ===
+# {_EICAR}
+
+# Static signature variable — single-quoted so $ is literal, never evaluated:
+$CSP_EICAR = '{_EICAR}'
+
+# Static signature here-string — never executed:
+$CSP_EICAR_BLOCK = @'
+{_EICAR}
+'@
+
+# === BEHAVIOURAL DROPPER ===
 
 $ErrorActionPreference = 'Continue'
 $Url  = '{EICAR_URL}'
@@ -72,20 +106,39 @@ if (Test-Path $Dest) {{
 Start-Sleep -Milliseconds 500
 Remove-Item $Dest -Force -ErrorAction SilentlyContinue
 Write-Host "[CSP {sid}] done."
+
+# === STATIC EICAR signature (raw trailing marker for AV/EDR) ===
+# {_EICAR}
 """
     return body.encode("utf-8")
 
 
+# ─── Bash — T1059.004 carrier on .sh ──────────────────────────────────────
 def dropper_sh() -> bytes:
     """Bash behavioural-test dropper for Linux / macOS endpoints."""
     sid = _session_id()
+    note_pref = _BEHAVIORAL_NOTE.replace("\n", "\n# ")
     body = f"""#!/usr/bin/env bash
 # CSP — behavioural-test dropper (session {sid}, generated {_ts()})
-# {_BEHAVIORAL_NOTE.replace(chr(10), chr(10) + '# ')}
+# {note_pref}
 #
 # SAFETY: the only payload is the official EICAR test signature from
 # secure.eicar.org. AV/EDR will intercept the write or the exec — that is
 # the intended outcome. Run on systems you own / are authorised to test.
+#
+# === STATIC EICAR signature (raw header for AV/EDR) ===
+# {_EICAR}
+
+# Static signature variable — single-quoted so $ and \\ are literal:
+CSP_EICAR='{_EICAR}'
+
+# Static multi-line signature carrier — fed to the no-op `:` builtin so it
+# is parsed by bash but never executed:
+: <<'CSP_EICAR_END'
+{_EICAR}
+CSP_EICAR_END
+
+# === BEHAVIOURAL DROPPER ===
 
 set -u
 URL='{EICAR_URL}'
@@ -106,22 +159,42 @@ fi
 
 rm -f "$DEST"
 echo "[CSP $SID] done."
+
+# === STATIC EICAR signature (raw trailing marker for AV/EDR) ===
+# {_EICAR}
 """
     return body.encode("utf-8")
 
 
+# ─── Python — T1059.006 carrier on .py ────────────────────────────────────
 def dropper_py() -> bytes:
     """Python behavioural-test dropper — cross-platform."""
     sid = _session_id()
     body = f'''#!/usr/bin/env python3
-"""CSP behavioural-test dropper (session {sid}, generated {_ts()}).
+# === STATIC EICAR signature (raw header for AV/EDR) ===
+# {_EICAR}
+
+r"""CSP behavioural-test dropper (session {sid}, generated {_ts()}).
 
 {_BEHAVIORAL_NOTE}
+
+STATIC EICAR signature embedded in module docstring — raw, never executed:
+
+{_EICAR}
 
 SAFETY: only payload is the official EICAR signature from secure.eicar.org.
 AV/EDR will intercept on write or on execute — that is the intended
 outcome. Run on systems you own / are authorised to test.
 """
+
+# Static signature variable — raw string, never evaluated:
+CSP_EICAR = r'{_EICAR}'
+
+# Static multi-line signature carrier — triple-quoted raw, parsed but unused:
+CSP_EICAR_BLOCK = r"""
+{_EICAR}
+"""
+
 import os
 import subprocess
 import sys
@@ -167,5 +240,8 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+# === STATIC EICAR signature (raw trailing marker for AV/EDR) ===
+# {_EICAR}
 '''
     return body.encode("utf-8")

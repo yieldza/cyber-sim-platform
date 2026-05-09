@@ -9,9 +9,10 @@ exercises EDR / XDR rules that look at script-host execution chains:
   js             T1059.007 — JScript via Windows Script Host     (.js)
   html-smuggle   T1027.006 — HTML smuggling (Blob + auto-click)  (.html)
 
-All files emit harmless WScript.Echo / Popup / cmd-echo when run; the
-download + spawn telemetry plus the EICAR signature inside is what blue
-team should see.
+v0.4.2 — multi-location EICAR (header + string variable + trailing) on
+each carrier. Cortex XDR / WildFire and similar EDRs require multiple
+hits or extracted-section hits before they fire on script files; a
+single in-comment hit at the top of the file is sometimes filtered out.
 """
 from __future__ import annotations
 
@@ -20,6 +21,8 @@ import secrets
 from datetime import datetime, timezone
 
 from .eicar import EICAR_STRING
+
+_EICAR = EICAR_STRING.decode("ascii")  # single-backslash, raw form
 
 
 def _ts() -> str:
@@ -34,13 +37,13 @@ def _sid() -> str:
 def eicar_hta() -> bytes:
     sid = _sid()
     body = f"""<!DOCTYPE HTML>
+<!-- CSP HTA test — T1218.005 Mshta abuse (session {sid}) -->
+<!-- STATIC EICAR (raw header): {_EICAR} -->
 <html>
 <head>
 <title>CSP HTA Test ({sid})</title>
 <HTA:APPLICATION ID="csp_hta" APPLICATIONNAME="CSP-HTA" SCROLL="no" SINGLEINSTANCE="yes" />
-<!-- T1218.005 — System Binary Proxy Execution: Mshta -->
 <!-- Generated {_ts()} session={sid} -->
-<!-- EICAR (static signature): {EICAR_STRING.decode("ascii")} -->
 </head>
 <body style="font-family:sans-serif;background:#111;color:#eee;padding:20px">
 <h1>CSP HTA Test</h1>
@@ -52,9 +55,19 @@ def eicar_hta() -> bytes:
 <li>process_create chain: mshta -> wscript.shell COM -> cmd.exe</li>
 <li>YARA / static AV match on the embedded EICAR signature</li>
 </ul>
-<pre id="eicar">{EICAR_STRING.decode("ascii")}</pre>
+
+<!-- Static EICAR carrier (raw text in body, picked up by stream scanners) -->
+<pre id="eicar">{_EICAR}</pre>
+
+<!-- Static EICAR carrier (textarea — also indexed as DOM text) -->
+<textarea style="display:none">{_EICAR}</textarea>
+
 <script language="VBScript">
 On Error Resume Next
+' Static EICAR signature (constant, never evaluated):
+' {_EICAR}
+Const CSP_EICAR = "{_EICAR}"
+
 ' Behavioural-only: spawn benign cmd via WshShell. Real EDR sees the
 ' mshta -> shell chain regardless of the command run.
 Set sh = CreateObject("WScript.Shell")
@@ -63,6 +76,7 @@ self.close()
 </script>
 </body>
 </html>
+<!-- STATIC EICAR (raw trailing marker): {_EICAR} -->
 """
     return body.encode("utf-8")
 
@@ -72,8 +86,9 @@ def eicar_vbs() -> bytes:
     sid = _sid()
     body = f"""' CSP VBScript Test File — T1059.005 (Visual Basic)
 ' Generated: {_ts()}   session: {sid}
-' EICAR (static signature, also detected by every AV that knows EICAR):
-' {EICAR_STRING.decode("ascii")}
+'
+' === STATIC EICAR signature (raw header for AV/EDR) ===
+' {_EICAR}
 '
 ' Run with:   wscript csp_{sid}.vbs   or   cscript csp_{sid}.vbs
 '
@@ -82,6 +97,9 @@ def eicar_vbs() -> bytes:
 '   - YARA / static signature match on EICAR string
 '   - VBScript COM activation telemetry (WScript.Shell)
 
+' Static signature constant — declared and never used:
+Const CSP_EICAR = "{_EICAR}"
+
 On Error Resume Next
 Dim WshShell, sid
 sid = "{sid}"
@@ -89,6 +107,9 @@ Set WshShell = CreateObject("WScript.Shell")
 WshShell.Popup "CSP-VBS-test-" & sid, 1, "CSP", 64
 WshShell.Run "cmd /c echo CSP-VBS-test-" & sid, 0, True
 WScript.Quit 0
+
+' === STATIC EICAR signature (raw trailing marker for AV/EDR) ===
+' {_EICAR}
 """
     return body.encode("utf-8")
 
@@ -98,8 +119,9 @@ def eicar_js() -> bytes:
     sid = _sid()
     body = f"""// CSP JScript Test File — T1059.007 (JavaScript / Windows Script Host)
 // Generated: {_ts()}   session: {sid}
-// EICAR (static signature):
-// {EICAR_STRING.decode("ascii")}
+//
+// === STATIC EICAR signature (raw header for AV/EDR) ===
+// {_EICAR}
 //
 // Run with:   wscript csp_{sid}.js   or   cscript csp_{sid}.js
 //
@@ -109,6 +131,14 @@ def eicar_js() -> bytes:
 //   - WScript.Shell COM creation
 //   - EICAR static signature in file content
 
+// Static signature variable — single-quoted so $ is literal, never run:
+var CSP_EICAR = '{_EICAR}';
+
+// Static multi-line signature carrier (string literal, never executed):
+var CSP_EICAR_BLOCK = (
+  '{_EICAR}'
+);
+
 try {{
     var sid = "{sid}";
     var sh = WScript.CreateObject("WScript.Shell");
@@ -117,6 +147,9 @@ try {{
 }} catch (e) {{
     // Benign — only matters when run under Windows Script Host.
 }}
+
+// === STATIC EICAR signature (raw trailing marker for AV/EDR) ===
+// {_EICAR}
 """
     return body.encode("utf-8")
 
@@ -129,6 +162,8 @@ def eicar_html_smuggle() -> bytes:
     sid = _sid()
     payload_b64 = base64.b64encode(EICAR_STRING).decode("ascii")
     body = f"""<!DOCTYPE html>
+<!-- CSP HTML-smuggling test — T1027.006 (session {sid}) -->
+<!-- STATIC EICAR (raw header): {_EICAR} -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -153,9 +188,18 @@ expected:</p>
 </ul>
 <p><button id="dl">Download EICAR test file</button>
    (auto-fires after 500 ms)</p>
+
+<!-- Static EICAR carrier (raw text inside <pre>, indexed by stream scanners) -->
 <pre>EICAR (also embedded in the smuggled blob):
-{EICAR_STRING.decode("ascii")}</pre>
+{_EICAR}</pre>
+
+<!-- Static EICAR carrier (hidden textarea, indexed as DOM text) -->
+<textarea style="display:none">{_EICAR}</textarea>
+
 <script>
+// Static signature (single-quoted, never executed against EICAR semantics):
+var CSP_EICAR = '{_EICAR}';
+
 (function () {{
   var b64 = "{payload_b64}";
   var bin = atob(b64);
@@ -173,5 +217,6 @@ expected:</p>
 </script>
 </body>
 </html>
+<!-- STATIC EICAR (raw trailing marker): {_EICAR} -->
 """
     return body.encode("utf-8")

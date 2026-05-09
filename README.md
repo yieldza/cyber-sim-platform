@@ -252,6 +252,65 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.4.2 — 2026-05-09
+
+Same Cortex XDR detection treatment from v0.4.1 (PE) extended to script
+carriers — `.ps1` / `.sh` / `.py` / `.vbs` / `.js` / `.hta` / `.html`.
+
+User report: only the `pe` artifact stopped slipping past Cortex XDR
+after v0.4.1; the script-extension carriers (dropper-ps1 / dropper-sh /
+dropper-py and the ATT&CK script files vbs / js / hta / html-smuggle)
+still passed through. Their EICAR signature was present, but only inside
+a single comment block at the top of the file — Cortex XDR / WildFire
+sometimes filter that out as "low-signal comment match" before applying
+the static rule.
+
+`worker/app/generators/dropper.py` and
+`worker/app/generators/script_files.py` reworked: every script generator
+now emits the EICAR signature in **multiple distinct file regions** so
+that any engine — whether it streams the whole file, indexes only
+specific token regions, or extracts and scans individual constructs —
+hits at least one copy:
+
+| File type     | EICAR copies | Locations |
+|---------------|:---:|---|
+| `dropper-ps1` |  4  | header comment · `$CSP_EICAR=` literal · `@'…'@` here-string · trailing comment |
+| `dropper-sh`  |  4  | header comment · `CSP_EICAR=` literal · `: <<'EOF'` no-op heredoc · trailing comment |
+| `dropper-py`  |  5  | top-of-file comment · module docstring · `r'…'` literal · `r"""…"""` literal · trailing comment |
+| `hta`         |  6  | HTML comment header · `<pre>` body · hidden `<textarea>` · `Const CSP_EICAR=` (VBScript) · trailing HTML comment |
+| `vbs`         |  3  | header comment · `Const CSP_EICAR=` · trailing comment |
+| `js`          |  4  | header comment · `var CSP_EICAR='…'` · `var CSP_EICAR_BLOCK=(…)` · trailing comment |
+| `html-smuggle`|  5  | HTML comment header · `<pre>` body · hidden `<textarea>` · `var CSP_EICAR='…'` · trailing HTML comment |
+
+All generated files remain syntactically valid for their intended
+interpreter — verified locally with `python3 -c 'import ast; ast.parse(...)`'
+and `bash -n`. Static EICAR variables are deliberately unreferenced
+(declared, never read), so adding them does not change the dropper's
+behavioural execution chain.
+
+Image tags published to Docker Hub (multiarch `linux/amd64` + `linux/arm64`):
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.4.2       327 MB   (rebuild for tag parity)
+docker.io/124000pk/yieldpk:csp-worker-0.4.2    330 MB   (dropper.py + script_files.py changed)
+docker.io/124000pk/yieldpk:csp-web-0.4.2        40 MB   (rebuild for tag parity)
+```
+
+### How to update an existing deployment to v0.4.2
+
+```bash
+cd /path/to/csp
+sed -i.bak \
+  -e 's/^TAG_API=.*/TAG_API=csp-api-0.4.2/' \
+  -e 's/^TAG_WORKER=.*/TAG_WORKER=csp-worker-0.4.2/' \
+  -e 's/^TAG_WEB=.*/TAG_WEB=csp-web-0.4.2/' \
+  .env
+
+docker compose pull && docker compose up -d
+# Then in the Web UI, Generate -> file_type=dropper-ps1 / vbs / js / etc.
+# The downloaded script should now be flagged by Cortex XDR on write.
+```
+
 ### v0.4.1 — 2026-05-09
 
 Bug fix — `pe` (Windows .exe) generator was not detected by Cortex XDR.
