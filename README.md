@@ -252,6 +252,76 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.4.1 — 2026-05-09
+
+Bug fix — `pe` (Windows .exe) generator was not detected by Cortex XDR.
+
+User report: the `pe` artifact downloaded from the Generate tab passed
+through Cortex XDR untouched, even though the same EICAR signature
+inside `pdf` / `apk` / `docx` / `eicar` files was caught.
+
+Root cause: the v0.1.0 PE generator produced a 1 KB file with several
+structural shortcuts that Cortex XDR / WildFire's pre-scan filter treats
+as "broken PE — skip":
+
+- entry point pointed at a non-executable section,
+- no DOS stub message (the area between `MZ` and `PE\0\0` was all zeros),
+- only one section, marked `READ | WRITE | INITIALIZED_DATA`,
+- file too small / too sparse for the engine to bother dispatching to
+  the proper PE static-signature pipeline.
+
+`worker/app/generators/pe.py` rewritten:
+
+- File size now ~9 KB (proper headers + 4 KB `.text` + 4 KB `.data` +
+  overlay).
+- Two sections — `.text` is `CODE | EXECUTE | READ`, `.data` is
+  `READ | WRITE | INITIALIZED_DATA`.
+- Real x86 entry stub at start of `.text` (`xor eax, eax ; ret`) so the
+  EntryPoint RVA points at valid-looking code in an executable section.
+- DOS stub area (192 bytes) carries a normal-looking "cannot run in DOS
+  mode" message so the file passes a "valid stub" sniff check.
+
+The EICAR signature is now embedded in **four** distinct file regions —
+any engine that scans the file as a stream, or extracts and scans
+individual sections, hits at least one copy:
+
+```
+zone        copies     where
+DOS stub      1        between MZ header and PE header
+.text        ~25       interleaved every ~160 bytes after the entry stub
+.data         2        at section start AND at section end
+overlay       2        appended after the last raw section
+```
+
+Verified locally: `file(1)` reports
+`MS-DOS executable PE32 executable (console) Intel 80386, for MS Windows`
+(was previously detected as PE but with several malformations the AV
+filter chain didn't like).
+
+Image tags published to Docker Hub (multiarch `linux/amd64` + `linux/arm64`):
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.4.1       327 MB   (rebuild for tag parity)
+docker.io/124000pk/yieldpk:csp-worker-0.4.1    330 MB   (pe.py changed)
+docker.io/124000pk/yieldpk:csp-web-0.4.1        40 MB   (rebuild for tag parity)
+```
+
+### How to update an existing deployment to v0.4.1
+
+```bash
+cd /path/to/csp
+sed -i.bak \
+  -e 's/^TAG_API=.*/TAG_API=csp-api-0.4.1/' \
+  -e 's/^TAG_WORKER=.*/TAG_WORKER=csp-worker-0.4.1/' \
+  -e 's/^TAG_WEB=.*/TAG_WEB=csp-web-0.4.1/' \
+  .env
+
+docker compose pull && docker compose up -d
+# Then in the Web UI, Generate -> file_type=pe -> Generate.
+# The downloaded .exe should now be quarantined / blocked by Cortex XDR
+# on write or on first scan.
+```
+
 ### v0.4.0 — 2026-05-09
 
 Three feature areas plus one bug fix.
