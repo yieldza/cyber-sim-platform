@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from .converter import SUPPORTED_TARGETS, detect_format, polyglot_zip_pdf, rewrap_eicar
 from .generators import (
     EICAR_STRING,
+    MAX_PAD_TARGET_BYTES,
     com_file,
     dropper_ps1,
     dropper_py,
@@ -29,6 +30,7 @@ from .generators import (
     eicar_pdf,
     eicar_vbs,
     minimal_pe,
+    pad_artifact,
     raw_eicar,
 )
 from .hash_mutator import (
@@ -105,13 +107,35 @@ def healthz() -> dict:
 class GenerateRequest(BaseModel):
     file_type: FileType
     note: str | None = Field(default=None, max_length=500)
+    # Optional padded size in KiB. Range 1..20480 (20 MiB cap). Omitting
+    # leaves the artefact at its natural minimum size.
+    target_size_kb: int | None = Field(default=None, ge=1, le=20480)
 
 
 @app.post("/generate", dependencies=[Depends(require_api_key)])
 def generate(req: GenerateRequest) -> dict:
     fn = GENERATORS[req.file_type]
     data = fn()
-    return {"file_type": req.file_type, **_result(data)}
+    natural_kb = (len(data) + 1023) // 1024
+
+    if req.target_size_kb is not None:
+        target_bytes = req.target_size_kb * 1024
+        if target_bytes > MAX_PAD_TARGET_BYTES:
+            raise HTTPException(400, "target_size_kb exceeds 20 MB cap")
+        if target_bytes < len(data):
+            raise HTTPException(
+                400,
+                f"target_size_kb={req.target_size_kb} is smaller than natural "
+                f"minimum {natural_kb} KiB for file_type {req.file_type}",
+            )
+        data = pad_artifact(data, req.file_type, target_bytes)
+
+    return {
+        "file_type": req.file_type,
+        "natural_size_kb": natural_kb,
+        "target_size_kb": req.target_size_kb,
+        **_result(data),
+    }
 
 
 # ---------- /mutate ----------

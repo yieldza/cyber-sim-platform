@@ -90,10 +90,20 @@ $('#generateForm').addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(e.target);
   $('#generateResult').textContent = '...';
+  const body = { file_type: fd.get('file_type'), note: fd.get('note') || null };
+  const tskStr = fd.get('target_size_kb');
+  if (tskStr) {
+    const tsk = Number(tskStr);
+    if (!Number.isInteger(tsk) || tsk < 1 || tsk > 20480) {
+      $('#generateResult').textContent = 'target size must be integer 1..20480 KB (max 20 MB)';
+      return;
+    }
+    body.target_size_kb = tsk;
+  }
   try {
     const res = await api('/files/generate', {
       method: 'POST',
-      body: { file_type: fd.get('file_type'), note: fd.get('note') || null },
+      body,
     });
     $('#generateResult').textContent =
       JSON.stringify(res, null, 2) +

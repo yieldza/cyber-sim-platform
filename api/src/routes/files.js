@@ -62,9 +62,19 @@ filesRouter.delete('/:id', (req, res) => {
 
 filesRouter.post('/generate', async (req, res, next) => {
   try {
-    const { file_type, note } = req.body || {};
+    const { file_type, note, target_size_kb } = req.body || {};
     if (!file_type) return res.status(400).json({ error: 'file_type required' });
-    const data = await callWorker('/generate', { file_type, note });
+
+    // Validate target_size_kb client-side before round-tripping to the worker.
+    let tsk = null;
+    if (target_size_kb !== undefined && target_size_kb !== null && target_size_kb !== '') {
+      tsk = Number(target_size_kb);
+      if (!Number.isInteger(tsk) || tsk < 1 || tsk > 20480) {
+        return res.status(400).json({ error: 'target_size_kb must be integer 1..20480 (20 MB cap)' });
+      }
+    }
+
+    const data = await callWorker('/generate', { file_type, note, target_size_kb: tsk });
     const saved = saveArtifact({
       userId: req.user.id,
       fileType: file_type,
@@ -72,10 +82,26 @@ filesRouter.post('/generate', async (req, res, next) => {
       hashes: data.hashes,
       size: data.size,
       sourceOp: 'generate',
-      metadata: { note: note || null },
+      metadata: {
+        note: note || null,
+        natural_size_kb: data.natural_size_kb,
+        target_size_kb: tsk,
+      },
     });
-    audit(req.user.id, 'generate', { id: saved.id, file_type, sha256: data.hashes.sha256 }, req.ip);
-    res.json({ id: saved.id, file_type, size: data.size, hashes: data.hashes });
+    audit(req.user.id, 'generate', {
+      id: saved.id,
+      file_type,
+      sha256: data.hashes.sha256,
+      target_size_kb: tsk,
+    }, req.ip);
+    res.json({
+      id: saved.id,
+      file_type,
+      size: data.size,
+      natural_size_kb: data.natural_size_kb,
+      target_size_kb: tsk,
+      hashes: data.hashes,
+    });
   } catch (err) {
     next(err);
   }

@@ -66,6 +66,9 @@
           <label>Note (optional, audit only)
             <input name="note" maxlength="200" placeholder="e.g. CrowdStrike PDF detection test" />
           </label>
+          <label>Target size (KB, 1&ndash;20480 = 20&nbsp;MB max, blank = natural minimum)
+            <input name="target_size_kb" type="number" min="1" max="20480" placeholder="e.g. 1024 = 1 MB · 10240 = 10 MB · 20480 = 20 MB" />
+          </label>
           <button type="submit">Generate</button>
         </form>
         <pre id="generateResult" class="result"></pre>

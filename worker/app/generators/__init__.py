@@ -5,6 +5,7 @@ from .apk import eicar_apk
 from .docx import eicar_docx
 from .dropper import dropper_ps1, dropper_sh, dropper_py
 from .script_files import eicar_hta, eicar_vbs, eicar_js, eicar_html_smuggle
+from .padding import pad_artifact, MAX_PAD_TARGET_BYTES
 
 __all__ = [
     "EICAR_STRING",
@@ -21,4 +22,6 @@ __all__ = [
     "eicar_vbs",
     "eicar_js",
     "eicar_html_smuggle",
+    "pad_artifact",
+    "MAX_PAD_TARGET_BYTES",
 ]

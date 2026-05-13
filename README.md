@@ -252,6 +252,70 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.4.3 — 2026-05-13
+
+Operator-specified file size on the Generate tab. Useful for testing
+size-based detection rules, sandbox / proxy file-size caps, mail-gateway
+attachment limits, and how AV/EDR behaves on multi-MB inputs.
+
+- **New form field — *Target size (KB)*** on the Generate tab, range
+  **1 – 20480 KB (20 MB cap)**. Blank → file emitted at its natural
+  minimum (the v0.4.1/0.4.2 sizes).
+- **New worker endpoint param** `target_size_kb` on `POST /generate`.
+  Validated `1 ≤ x ≤ 20480` server-side; rejected with HTTP 400 if the
+  requested size is smaller than the file's natural minimum. Worker
+  response now includes `natural_size_kb` and `target_size_kb` so the
+  Library / metadata page can show both.
+- **New helper** `worker/app/generators/padding.py` — `pad_artifact()`
+  appends EICAR-bearing filler to reach the target size. Padding style
+  is chosen per file_type so the result remains parseable:
+
+  | File type | Padding strategy |
+  |-----------|------------------|
+  | `pe` | binary overlay (null pad + EICAR + null pad), appended after the last raw section |
+  | `pdf` | PDF comment lines (`% EICAR …`) after `%%EOF` |
+  | `apk`, `docx` | trailing bytes after the ZIP central directory (EOCD search is backward, so tolerated) |
+  | `dropper-ps1`, `dropper-sh`, `dropper-py` | language comment lines (`# EICAR …`) appended |
+  | `vbs` | `' EICAR …` comment lines |
+  | `js` | `// EICAR …` comment lines |
+  | `hta`, `html-smuggle` | HTML `<!-- EICAR … -->` comments after `</html>` |
+
+  Every padding block embeds the canonical 68-byte EICAR signature, so a
+  20 MB padded PE / dropper / HTA contains **hundreds of thousands** of
+  EICAR copies — static signature detection fires at any scan depth.
+
+- **API forwarding**: `POST /api/files/generate` now accepts
+  `target_size_kb` (Number). Validated client-side and re-validated at
+  worker. Audit log records the requested size.
+
+Padded artifacts remain syntactically valid for their interpreter — for
+script types this was verified with `python3 -c "import ast; ast.parse(…)"`
+and `bash -n` against 1 MB outputs.
+
+Image tags published to Docker Hub (multiarch `linux/amd64` + `linux/arm64`):
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.4.3       327 MB
+docker.io/124000pk/yieldpk:csp-worker-0.4.3    330 MB
+docker.io/124000pk/yieldpk:csp-web-0.4.3        40 MB
+```
+
+### How to update an existing deployment to v0.4.3
+
+```bash
+cd /path/to/csp
+sed -i.bak \
+  -e 's/^TAG_API=.*/TAG_API=csp-api-0.4.3/' \
+  -e 's/^TAG_WORKER=.*/TAG_WORKER=csp-worker-0.4.3/' \
+  -e 's/^TAG_WEB=.*/TAG_WEB=csp-web-0.4.3/' \
+  .env
+
+docker compose pull && docker compose up -d
+# Web UI Generate tab now shows "Target size (KB)" input (1..20480).
+```
+
+No DB migration. Existing artifacts unaffected.
+
 ### v0.4.2 — 2026-05-09
 
 Same Cortex XDR detection treatment from v0.4.1 (PE) extended to script
