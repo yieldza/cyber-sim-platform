@@ -66,8 +66,15 @@
           <label>Note (optional, audit only)
             <input name="note" maxlength="200" placeholder="e.g. CrowdStrike PDF detection test" />
           </label>
-          <label>Target size (KB, 1&ndash;20480 = 20&nbsp;MB max, blank = natural minimum)
-            <input name="target_size_kb" type="number" min="1" max="20480" placeholder="e.g. 1024 = 1 MB · 10240 = 10 MB · 20480 = 20 MB" />
+          <label>Target size (blank = natural minimum)
+            <select name="target_size_kb">
+              <option value="">&mdash; natural minimum &mdash;</option>
+              <option value="2048">2 MB</option>
+              <option value="5120">5 MB</option>
+              <option value="10240">10 MB</option>
+              <option value="15360">15 MB</option>
+              <option value="20480">20 MB</option>
+            </select>
           </label>
           <button type="submit">Generate</button>
         </form>

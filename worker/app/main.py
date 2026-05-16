@@ -104,12 +104,15 @@ def healthz() -> dict:
 
 
 # ---------- /generate ----------
+TargetSizeKB = Literal[2048, 5120, 10240, 15360, 20480]  # 2 / 5 / 10 / 15 / 20 MB
+
+
 class GenerateRequest(BaseModel):
     file_type: FileType
     note: str | None = Field(default=None, max_length=500)
-    # Optional padded size in KiB. Range 1..20480 (20 MiB cap). Omitting
-    # leaves the artefact at its natural minimum size.
-    target_size_kb: int | None = Field(default=None, ge=1, le=20480)
+    # Optional padded size — strict allow-list (v0.4.4): 2 / 5 / 10 / 15 / 20 MB.
+    # Omitting leaves the artefact at its natural minimum size.
+    target_size_kb: TargetSizeKB | None = None
 
 
 @app.post("/generate", dependencies=[Depends(require_api_key)])

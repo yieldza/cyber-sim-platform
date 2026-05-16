@@ -252,6 +252,51 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.4.4 — 2026-05-16
+
+Generate-tab size input tightened from free-form number to a strict
+dropdown.
+
+- **Web UI**: the *Target size (KB)* `<input type="number">` is replaced
+  with a `<select>` offering exactly five options — **2 MB / 5 MB /
+  10 MB / 15 MB / 20 MB**, plus a *— natural minimum —* entry that maps
+  to "no padding". No arbitrary sizes are accepted from the UI any more.
+- **API** (`api/src/routes/files.js`): `target_size_kb` is re-validated
+  against the strict allow-list `{2048, 5120, 10240, 15360, 20480}`.
+  Anything else returns
+  `400 target_size_kb must be one of: 2048, 5120, 10240, 15360, 20480 (2/5/10/15/20 MB)`.
+- **Worker** (`worker/app/main.py`): `GenerateRequest.target_size_kb` is
+  now `Literal[2048, 5120, 10240, 15360, 20480] | None`; Pydantic
+  rejects anything else at the model boundary.
+
+No padding-algorithm changes — `worker/app/generators/padding.py` is
+unchanged. All 13 file types continue to pad to the requested size with
+EICAR-bearing filler.
+
+Image tags published to Docker Hub (multiarch `linux/amd64` + `linux/arm64`):
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.4.4       327 MB
+docker.io/124000pk/yieldpk:csp-worker-0.4.4    330 MB
+docker.io/124000pk/yieldpk:csp-web-0.4.4        40 MB
+```
+
+### How to update an existing deployment to v0.4.4
+
+```bash
+cd /path/to/csp
+sed -i.bak \
+  -e 's/^TAG_API=.*/TAG_API=csp-api-0.4.4/' \
+  -e 's/^TAG_WORKER=.*/TAG_WORKER=csp-worker-0.4.4/' \
+  -e 's/^TAG_WEB=.*/TAG_WEB=csp-web-0.4.4/' \
+  .env
+
+docker compose pull && docker compose up -d
+# Web UI Generate tab now shows a 5-option size dropdown.
+```
+
+No DB migration.
+
 ### v0.4.3 — 2026-05-13
 
 Operator-specified file size on the Generate tab. Useful for testing

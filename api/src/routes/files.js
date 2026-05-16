@@ -65,12 +65,16 @@ filesRouter.post('/generate', async (req, res, next) => {
     const { file_type, note, target_size_kb } = req.body || {};
     if (!file_type) return res.status(400).json({ error: 'file_type required' });
 
-    // Validate target_size_kb client-side before round-tripping to the worker.
+    // Validate target_size_kb against the strict allow-list (v0.4.4):
+    // 2 / 5 / 10 / 15 / 20 MB. Blank / null = use natural minimum.
+    const ALLOWED_SIZES = [2048, 5120, 10240, 15360, 20480];
     let tsk = null;
     if (target_size_kb !== undefined && target_size_kb !== null && target_size_kb !== '') {
       tsk = Number(target_size_kb);
-      if (!Number.isInteger(tsk) || tsk < 1 || tsk > 20480) {
-        return res.status(400).json({ error: 'target_size_kb must be integer 1..20480 (20 MB cap)' });
+      if (!ALLOWED_SIZES.includes(tsk)) {
+        return res.status(400).json({
+          error: 'target_size_kb must be one of: 2048, 5120, 10240, 15360, 20480 (2/5/10/15/20 MB)',
+        });
       }
     }
 

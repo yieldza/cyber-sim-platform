@@ -94,8 +94,10 @@ $('#generateForm').addEventListener('submit', async (e) => {
   const tskStr = fd.get('target_size_kb');
   if (tskStr) {
     const tsk = Number(tskStr);
-    if (!Number.isInteger(tsk) || tsk < 1 || tsk > 20480) {
-      $('#generateResult').textContent = 'target size must be integer 1..20480 KB (max 20 MB)';
+    // Strict allow-list (v0.4.4): 2/5/10/15/20 MB. The <select> options
+    // already constrain this — re-validated here in case of DOM tampering.
+    if (![2048, 5120, 10240, 15360, 20480].includes(tsk)) {
+      $('#generateResult').textContent = 'invalid target size — must be 2/5/10/15/20 MB';
       return;
     }
     body.target_size_kb = tsk;
