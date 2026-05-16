@@ -103,3 +103,19 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_agent ON agent_tasks(agent_id, status);
 CREATE INDEX IF NOT EXISTS idx_tasks_user  ON agent_tasks(created_by, created_at);
+
+-- Coverage matrix — manual detection-result marking per technique
+CREATE TABLE IF NOT EXISTS coverage_results (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id           INTEGER NOT NULL REFERENCES users(id),
+  technique_id      TEXT NOT NULL,
+  test_name         TEXT,
+  detection_status  TEXT NOT NULL DEFAULT 'untested',  -- detected | not_detected | partial | untested
+  edr_product       TEXT,                               -- e.g. "Cortex XDR", "CrowdStrike"
+  alert_name        TEXT,                               -- name of alert/BTP rule that fired
+  notes             TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_coverage_user ON coverage_results(user_id, technique_id);
+CREATE INDEX IF NOT EXISTS idx_coverage_tech ON coverage_results(technique_id);

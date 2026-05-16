@@ -34,6 +34,7 @@
         <button class="tab" data-tab="convert">Convert / polyglot</button>
         <button class="tab" data-tab="attack">ATT&amp;CK</button>
         <button class="tab" data-tab="agents">Agents</button>
+        <button class="tab" data-tab="coverage">Coverage</button>
         <button class="tab" data-tab="library">Library</button>
       </nav>
 
@@ -237,6 +238,70 @@
           • <strong>Linux / macOS</strong> — <code>chmod +x csp_agent.py</code> (or run via <code>python3 csp_agent.py …</code>)<br>
           • <strong>C#</strong> — see header comments in the .cs file for <code>dotnet publish</code> build steps.
         </p>
+      </div>
+
+      <div class="tab-panel" data-panel="coverage">
+        <h3>MITRE ATT&amp;CK Coverage Matrix</h3>
+        <p class="muted">Mark detection results per technique. Green = detected, Red = not detected, Yellow = partial, Gray = untested.</p>
+
+        <div class="coverage-toolbar">
+          <label class="inline">
+            <span>EDR Product</span>
+            <input id="coverageProduct" placeholder="e.g. Cortex XDR" value="Cortex XDR" />
+          </label>
+          <label class="inline">
+            <span>Filter tactic</span>
+            <select id="coverageTacticFilter">
+              <option value="">all</option>
+              <option value="execution">execution</option>
+              <option value="discovery">discovery</option>
+              <option value="defense-evasion">defense-evasion</option>
+              <option value="persistence">persistence</option>
+              <option value="credential-access">credential-access</option>
+              <option value="lateral-movement">lateral-movement</option>
+              <option value="command-and-control">command-and-control</option>
+              <option value="impact">impact</option>
+              <option value="exfiltration">exfiltration</option>
+            </select>
+          </label>
+          <label class="inline">
+            <span>Filter status</span>
+            <select id="coverageStatusFilter">
+              <option value="">all</option>
+              <option value="detected">detected</option>
+              <option value="not_detected">not detected</option>
+              <option value="partial">partial</option>
+              <option value="untested">untested</option>
+            </select>
+          </label>
+          <button id="refreshCoverage" type="button">Refresh</button>
+        </div>
+
+        <div id="coverageSummary" class="coverage-summary"></div>
+        <div id="coverageMatrix" class="coverage-matrix"></div>
+
+        <h4 class="section-h">Mark detection result</h4>
+        <form id="coverageForm">
+          <label>Technique
+            <select name="technique_id" id="coverageTechSelect"></select>
+          </label>
+          <label>Status
+            <select name="detection_status">
+              <option value="detected">Detected</option>
+              <option value="not_detected">Not Detected</option>
+              <option value="partial">Partial</option>
+              <option value="untested">Untested</option>
+            </select>
+          </label>
+          <label>Alert name (optional)
+            <input name="alert_name" placeholder="e.g. BTP Rule: Suspicious Process Chain" />
+          </label>
+          <label>Notes (optional)
+            <input name="notes" placeholder="e.g. Detected after 5s delay, alert severity Medium" />
+          </label>
+          <button type="submit">Save</button>
+        </form>
+        <pre id="coverageResult" class="result"></pre>
       </div>
 
       <div class="tab-panel" data-panel="library">

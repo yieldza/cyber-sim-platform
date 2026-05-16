@@ -252,6 +252,50 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.5.0 — 2026-05-16
+
+**BTP Scenario Pack + Coverage Matrix** — major expansion targeting Cortex
+XDR Behavioral Threat Protection and XSIAM analytics validation.
+
+#### New ATT&CK Techniques (16 added, total 43 techniques / 72 tests)
+
+| Category | Techniques Added |
+|----------|-----------------|
+| **Process chain simulation** | T1055 Process Injection (BTP Simulation) — notepad→cmd, Office→PS, svchost child anomaly |
+| **LOLBin abuse** | T1218.010 Regsvr32 squiblydoo, T1197 BITS Jobs (download + job creation), T1105.002 Certutil download + encode/decode |
+| **Download cradles** | T1059.001.chain PowerShell IEX(IWR), WebClient.DownloadString, -WindowStyle Hidden |
+| **Credential access (BTP)** | T1003.001 LSASS access pattern + procdump + comsvcs simulation, T1003.002 SAM reg save + shadow copy/ntds.dit |
+| **Ransomware simulation** | T1486 mass rename to .encrypted/.locked (50 files), ransom note creation |
+| **Masquerading** | T1036.003 renamed cmd.exe/powershell.exe — image hash mismatch |
+| **Execution** | T1569.002 sc create/delete, T1053.005.btp schtasks create/delete, T1059.001.wmi wmic process create |
+| **Defense evasion** | T1059.001.amsi AMSI bypass pattern detection, T1547.001.btp reg add Run key via cmd |
+| **Exfiltration** | T1048.003 DNS exfiltration simulation (long random subdomains) |
+| **C2** | T1071.004 DNS beacon periodic pattern (10 queries @ 1s interval) |
+
+All tests are **benign simulation only** — no real injection, no credential
+extraction, no file encryption. They produce the telemetry/process-chain
+patterns that Cortex XDR BTP rules and XSIAM BIOC rules should detect.
+
+#### New: Coverage Matrix Tab
+
+- **Visual heatmap** of all 43 techniques grouped by tactic
+- Color-coded: green (detected), red (not detected), yellow (partial), gray (untested)
+- **Summary bar** showing overall coverage percentage
+- **Manual marking**: select technique → record detection result + alert name + notes
+- **Filter** by tactic and detection status
+- **EDR product** field (default: Cortex XDR) for multi-product comparison
+- API: `GET /api/coverage`, `PUT /api/coverage/:technique_id`, `DELETE /api/coverage/:technique_id`
+- Data persisted in SQLite `coverage_results` table
+
+#### Tactic coverage now spans 9 tactics:
+
+`execution` · `discovery` · `defense-evasion` · `persistence` ·
+`credential-access` · `lateral-movement` · `command-and-control` ·
+`impact` �� `exfiltration`
+
+(previously 7 — added `impact` and `exfiltration`; `persistence` and
+`execution` expanded with BTP-specific variants)
+
 ### v0.4.4 — 2026-05-16
 
 Generate-tab size input tightened from free-form number to a strict

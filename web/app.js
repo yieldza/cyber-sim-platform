@@ -82,6 +82,7 @@ $$('.tab').forEach(t => {
     if (t.dataset.tab === 'mutate' || t.dataset.tab === 'library') refreshLibrary();
     if (t.dataset.tab === 'attack') { loadCatalog(); refreshRuns(); }
     if (t.dataset.tab === 'agents') { refreshAgents(); refreshAgentTasks(); ensureCatalogLoadedForAgents(); }
+    if (t.dataset.tab === 'coverage') { loadCoverage(); }
   };
 });
 
@@ -700,5 +701,130 @@ async function downloadArtifact(id) {
   a.href = url; a.download = name; a.click();
   URL.revokeObjectURL(url);
 }
+
+// --- Coverage Matrix ---
+let coverageData = null;
+
+async function loadCoverage() {
+  try {
+    coverageData = await api('/coverage');
+    renderCoverageSummary();
+    renderCoverageMatrix();
+    populateCoverageTechSelect();
+  } catch (err) {
+    $('#coverageResult').textContent = 'ERR: ' + err.message;
+  }
+}
+
+function renderCoverageSummary() {
+  if (!coverageData) return;
+  const s = coverageData.summary;
+  const pct = s.total > 0 ? Math.round((s.detected / s.total) * 100) : 0;
+  $('#coverageSummary').innerHTML = `
+    <div class="cov-stats">
+      <div class="cov-stat cov-detected"><span class="cov-num">${s.detected}</span><span class="cov-label">Detected</span></div>
+      <div class="cov-stat cov-not-detected"><span class="cov-num">${s.not_detected}</span><span class="cov-label">Not Detected</span></div>
+      <div class="cov-stat cov-partial"><span class="cov-num">${s.partial}</span><span class="cov-label">Partial</span></div>
+      <div class="cov-stat cov-untested"><span class="cov-num">${s.untested}</span><span class="cov-label">Untested</span></div>
+      <div class="cov-stat cov-total"><span class="cov-num">${pct}%</span><span class="cov-label">Coverage</span></div>
+    </div>
+    <div class="cov-bar">
+      <div class="cov-bar-detected" style="width:${(s.detected/s.total*100).toFixed(1)}%"></div>
+      <div class="cov-bar-partial" style="width:${(s.partial/s.total*100).toFixed(1)}%"></div>
+      <div class="cov-bar-not-detected" style="width:${(s.not_detected/s.total*100).toFixed(1)}%"></div>
+    </div>
+  `;
+}
+
+function renderCoverageMatrix() {
+  if (!coverageData) return;
+  const tacticFilter = $('#coverageTacticFilter').value;
+  const statusFilter = $('#coverageStatusFilter').value;
+  const container = $('#coverageMatrix');
+
+  let html = '';
+  const tactics = Object.keys(coverageData.by_tactic).sort();
+
+  for (const tactic of tactics) {
+    if (tacticFilter && tactic !== tacticFilter) continue;
+
+    const techniques = coverageData.by_tactic[tactic];
+    let filtered = techniques;
+    if (statusFilter) {
+      filtered = techniques.filter(t => t.detection_status === statusFilter);
+    }
+    if (filtered.length === 0) continue;
+
+    html += `<div class="cov-tactic-group">
+      <h4 class="cov-tactic-title">${escapeHtml(tactic)} <span class="muted">(${filtered.length})</span></h4>
+      <div class="cov-cards">`;
+
+    for (const t of filtered) {
+      const cls = `cov-card cov-${t.detection_status.replace('_', '-')}`;
+      const runs = t.run_count + t.agent_run_count;
+      const statusIcon = {
+        detected: '✓',
+        not_detected: '✗',
+        partial: '◐',
+        untested: '○',
+      }[t.detection_status] || '○';
+
+      html += `<div class="${cls}" data-tid="${escapeHtml(t.id)}" title="${escapeHtml(t.name)}&#10;Runs: ${runs}&#10;Status: ${t.detection_status}${t.alert_name ? '&#10;Alert: ' + escapeHtml(t.alert_name) : ''}${t.notes ? '&#10;Notes: ' + escapeHtml(t.notes) : ''}">
+        <span class="cov-card-icon">${statusIcon}</span>
+        <span class="cov-card-id">${escapeHtml(t.id)}</span>
+        <span class="cov-card-name">${escapeHtml(t.name.length > 30 ? t.name.slice(0, 28) + '…' : t.name)}</span>
+        <span class="cov-card-runs">${runs > 0 ? runs + ' runs' : ''}</span>
+      </div>`;
+    }
+    html += '</div></div>';
+  }
+
+  container.innerHTML = html;
+
+  // Click card to select technique in form
+  container.querySelectorAll('.cov-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const sel = $('#coverageTechSelect');
+      sel.value = card.dataset.tid;
+    });
+  });
+}
+
+function populateCoverageTechSelect() {
+  if (!coverageData) return;
+  const sel = $('#coverageTechSelect');
+  sel.innerHTML = '';
+  const all = Object.values(coverageData.techniques);
+  all.sort((a, b) => a.id.localeCompare(b.id));
+  for (const t of all) {
+    const o = document.createElement('option');
+    o.value = t.id;
+    o.textContent = `${t.id} — ${t.name} [${t.detection_status}]`;
+    sel.appendChild(o);
+  }
+}
+
+$('#coverageForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const tid = fd.get('technique_id');
+  const body = {
+    detection_status: fd.get('detection_status'),
+    edr_product: $('#coverageProduct').value || null,
+    alert_name: fd.get('alert_name') || null,
+    notes: fd.get('notes') || null,
+  };
+  try {
+    const res = await api(`/coverage/${encodeURIComponent(tid)}`, { method: 'PUT', body });
+    $('#coverageResult').textContent = JSON.stringify(res, null, 2);
+    loadCoverage();
+  } catch (err) {
+    $('#coverageResult').textContent = 'ERR: ' + err.message;
+  }
+});
+
+$('#refreshCoverage')?.addEventListener('click', loadCoverage);
+$('#coverageTacticFilter')?.addEventListener('change', renderCoverageMatrix);
+$('#coverageStatusFilter')?.addEventListener('change', renderCoverageMatrix);
 
 bootstrap();

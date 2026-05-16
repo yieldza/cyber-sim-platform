@@ -433,3 +433,79 @@ td .row-action.danger:hover { background: var(--accent-2); color: #0b1020; }
   font-weight: 400;
   line-height: 1.4;
 }
+
+/* ─── Coverage Matrix ─── */
+.coverage-toolbar {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.coverage-toolbar input,
+.coverage-toolbar select { max-width: 180px; }
+
+.coverage-summary { margin-bottom: 20px; }
+
+.cov-stats {
+  display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.cov-stat {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 10px 18px; border-radius: 8px;
+  background: var(--panel-2);
+}
+.cov-num { font-size: 22px; font-weight: 700; }
+.cov-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.cov-detected .cov-num { color: #4ade80; }
+.cov-not-detected .cov-num { color: #f87171; }
+.cov-partial .cov-num { color: #fbbf24; }
+.cov-untested .cov-num { color: var(--muted); }
+.cov-total .cov-num { color: var(--accent); }
+
+.cov-bar {
+  display: flex; height: 8px; border-radius: 4px;
+  overflow: hidden; background: var(--panel-2);
+}
+.cov-bar-detected { background: #4ade80; }
+.cov-bar-partial { background: #fbbf24; }
+.cov-bar-not-detected { background: #f87171; }
+
+.coverage-matrix { margin-bottom: 24px; }
+.cov-tactic-group { margin-bottom: 16px; }
+.cov-tactic-title {
+  font-size: 13px; font-weight: 600; text-transform: uppercase;
+  color: var(--accent); margin: 0 0 8px 0; letter-spacing: .5px;
+}
+
+.cov-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+}
+
+.cov-card {
+  display: grid; grid-template-columns: 24px 1fr;
+  grid-template-rows: auto auto;
+  gap: 0 6px;
+  padding: 8px 10px; border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  cursor: pointer; transition: border-color .15s;
+}
+.cov-card:hover { border-color: var(--accent); }
+
+.cov-card-icon {
+  grid-row: 1 / 3; align-self: center; justify-self: center;
+  font-size: 16px; font-weight: 700;
+}
+.cov-card-id { font-size: 11px; font-weight: 600; }
+.cov-card-name { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cov-card-runs { grid-column: 2; font-size: 9px; color: var(--muted); }
+
+/* Status colors */
+.cov-detected { border-left: 3px solid #4ade80; }
+.cov-detected .cov-card-icon { color: #4ade80; }
+.cov-not-detected { border-left: 3px solid #f87171; }
+.cov-not-detected .cov-card-icon { color: #f87171; }
+.cov-partial { border-left: 3px solid #fbbf24; }
+.cov-partial .cov-card-icon { color: #fbbf24; }
+.cov-untested { border-left: 3px solid var(--border); }
+.cov-untested .cov-card-icon { color: var(--muted); }

