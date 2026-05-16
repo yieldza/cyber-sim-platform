@@ -24,9 +24,6 @@ const FILE_TYPE_EXT = {
   'vbs': 'vbs',                    // T1059.005
   'js': 'js',                      // T1059.007
   'html-smuggle': 'html',          // T1027.006
-  // Encrypted artefact (v0.4.5) — ciphertext blob, not directly runnable
-  // until paired with the matching decryptor script + key.
-  'encrypted': 'enc',
 };
 
 export function saveArtifact({
