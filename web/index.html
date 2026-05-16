@@ -34,6 +34,7 @@
         <button class="tab" data-tab="convert">Convert / polyglot</button>
         <button class="tab" data-tab="attack">ATT&amp;CK</button>
         <button class="tab" data-tab="agents">Agents</button>
+        <button class="tab" data-tab="crypto">Encrypt / Decrypt</button>
         <button class="tab" data-tab="library">Library</button>
       </nav>
 
@@ -237,6 +238,75 @@
           • <strong>Linux / macOS</strong> — <code>chmod +x csp_agent.py</code> (or run via <code>python3 csp_agent.py …</code>)<br>
           • <strong>C#</strong> — see header comments in the .cs file for <code>dotnet publish</code> build steps.
         </p>
+      </div>
+
+      <div class="tab-panel" data-panel="crypto">
+        <h3>Encrypt / Decrypt</h3>
+        <p class="muted">Obfuscate an EICAR-bearing artifact so static AV scanners miss it on disk, then download a decryptor stub (<code>.ps1</code> / <code>.py</code> / <code>.cmd</code>) that restores the original at runtime. Tests EDR / XDR detection of the drop&rarr;decrypt&rarr;spawn chain.</p>
+
+        <h4 class="section-h">Encrypt</h4>
+        <form id="encryptForm">
+          <fieldset class="source-toggle">
+            <legend>Source</legend>
+            <label class="radio">
+              <input type="radio" name="source" value="library" checked />
+              <span>From library (previously generated)</span>
+            </label>
+            <label class="radio">
+              <input type="radio" name="source" value="upload" />
+              <span>Browse local drive (&le; 20 MB)</span>
+            </label>
+          </fieldset>
+
+          <div id="encSourceLibrary" class="source-pane">
+            <label>Source artifact
+              <select name="artifact_id" id="encryptArtifact"></select>
+            </label>
+          </div>
+          <div id="encSourceUpload" class="source-pane hidden">
+            <label>Local file (max 20 MB)
+              <input type="file" id="encryptUpload" name="upload_file" />
+            </label>
+            <div id="encryptUploadPreview" class="muted upload-preview"></div>
+          </div>
+
+          <label>Algorithm
+            <select name="algo">
+              <option value="xor-16">xor-16 (16-byte cycling key &mdash; zero-dep decryptor)</option>
+              <option value="aes-128-cbc">aes-128-cbc (PS1 stdlib; PY needs cryptography pkg)</option>
+            </select>
+          </label>
+
+          <button type="submit">Encrypt</button>
+        </form>
+        <pre id="encryptResult" class="result"></pre>
+        <div id="encryptActions" class="hidden">
+          <button type="button" class="row-action" data-dec-lang="ps1">Download decryptor.ps1</button>
+          <button type="button" class="row-action" data-dec-lang="py">Download decryptor.py</button>
+          <button type="button" class="row-action" data-dec-lang="bat">Download decryptor.cmd</button>
+          <button type="button" class="row-action" data-dec-lang="enc">Download encrypted blob</button>
+        </div>
+
+        <h4 class="section-h">Decrypt (verify / round-trip)</h4>
+        <form id="decryptForm">
+          <label>Encrypted file
+            <input type="file" id="decryptUpload" name="upload_file" />
+          </label>
+          <label>Algorithm
+            <select name="algo">
+              <option value="xor-16">xor-16</option>
+              <option value="aes-128-cbc">aes-128-cbc</option>
+            </select>
+          </label>
+          <label>Key (base64)
+            <input name="key_b64" placeholder="paste the key returned at encryption time" />
+          </label>
+          <label>IV (base64, AES only)
+            <input name="iv_b64" placeholder="paste the IV (only for aes-128-cbc)" />
+          </label>
+          <button type="submit">Decrypt</button>
+        </form>
+        <pre id="decryptResult" class="result"></pre>
       </div>
 
       <div class="tab-panel" data-panel="library">

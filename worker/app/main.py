@@ -49,6 +49,13 @@ from .techniques import (
     list_techniques,
     run_test,
 )
+from .crypto import (
+    SUPPORTED_ALGOS,
+    SUPPORTED_LANGS as DECRYPTOR_LANGS,
+    decrypt as crypto_decrypt,
+    decryptor_script,
+    encrypt as crypto_encrypt,
+)
 
 API_KEY = os.environ.get("WORKER_API_KEY") or secrets.token_hex(32)
 ARTIFACTS_DIR = os.environ.get("ARTIFACTS_DIR", "/app/artifacts")
@@ -329,6 +336,119 @@ def technique_script(req: ScriptRequest) -> dict:
         "size": len(content),
         "data_b64": data_b64,
         "supported_formats": list(SUPPORTED_SCRIPT_FORMATS),
+    }
+
+
+# ---------- /encrypt ----------
+class EncryptRequest(BaseModel):
+    data_b64: str
+    algo: Literal["xor-16", "aes-128-cbc"] = "xor-16"
+    # Optional caller-supplied key / iv (raw base64). If absent, a random
+    # key (and iv for AES) is generated server-side and returned.
+    key_b64: str | None = None
+    iv_b64: str | None = None
+
+
+@app.post("/encrypt", dependencies=[Depends(require_api_key)])
+def encrypt_endpoint(req: EncryptRequest) -> dict:
+    try:
+        data = base64.b64decode(req.data_b64, validate=True)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"invalid data_b64: {exc}") from exc
+    if len(data) > 20 * 1024 * 1024:
+        raise HTTPException(413, "data exceeds 20 MB cap")
+
+    try:
+        key = base64.b64decode(req.key_b64, validate=True) if req.key_b64 else None
+        iv  = base64.b64decode(req.iv_b64,  validate=True) if req.iv_b64  else None
+        result = crypto_encrypt(data, algo=req.algo, key=key, iv=iv)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    return {
+        "algo": result["algo"],
+        "ciphertext_b64": base64.b64encode(result["ciphertext"]).decode("ascii"),
+        "key_b64": base64.b64encode(result["key"]).decode("ascii"),
+        "iv_b64":  base64.b64encode(result["iv"]).decode("ascii"),
+        "size": len(result["ciphertext"]),
+        "hashes": hashes(result["ciphertext"]),
+    }
+
+
+# ---------- /decrypt ----------
+class DecryptRequest(BaseModel):
+    ciphertext_b64: str
+    algo: Literal["xor-16", "aes-128-cbc"] = "xor-16"
+    key_b64: str
+    iv_b64: str | None = None
+
+
+@app.post("/decrypt", dependencies=[Depends(require_api_key)])
+def decrypt_endpoint(req: DecryptRequest) -> dict:
+    try:
+        ct  = base64.b64decode(req.ciphertext_b64, validate=True)
+        key = base64.b64decode(req.key_b64,        validate=True)
+        iv  = base64.b64decode(req.iv_b64,         validate=True) if req.iv_b64 else b""
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"invalid base64: {exc}") from exc
+
+    try:
+        plaintext = crypto_decrypt(ct, key=key, algo=req.algo, iv=iv or None)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    return {
+        "algo": req.algo,
+        "size": len(plaintext),
+        "data_b64": base64.b64encode(plaintext).decode("ascii"),
+        "hashes": hashes(plaintext),
+    }
+
+
+# ---------- /decryptor-script ----------
+class DecryptorScriptRequest(BaseModel):
+    ciphertext_b64: str
+    algo: Literal["xor-16", "aes-128-cbc"] = "xor-16"
+    key_b64: str
+    iv_b64: str | None = None
+    lang: Literal["ps1", "py", "bat"] = "ps1"
+    output_filename: str | None = None
+
+
+@app.post("/decryptor-script", dependencies=[Depends(require_api_key)])
+def decryptor_script_endpoint(req: DecryptorScriptRequest) -> dict:
+    try:
+        ct  = base64.b64decode(req.ciphertext_b64, validate=True)
+        key = base64.b64decode(req.key_b64,        validate=True)
+        iv  = base64.b64decode(req.iv_b64,         validate=True) if req.iv_b64 else b""
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"invalid base64: {exc}") from exc
+
+    out_name = (req.output_filename or "decrypted.bin").replace("\\", "_").replace("/", "_")
+    try:
+        script_bytes = decryptor_script(
+            ciphertext=ct,
+            key=key,
+            algo=req.algo,
+            iv=iv,
+            lang=req.lang,
+            output_filename=out_name,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    ext = {"ps1": "ps1", "py": "py", "bat": "cmd"}[req.lang]
+    mime = {"ps1": "application/x-powershell",
+            "py": "text/x-python",
+            "bat": "application/x-bat"}[req.lang]
+    filename = f"decryptor.{ext}"
+    return {
+        "filename": filename,
+        "mime": mime,
+        "size": len(script_bytes),
+        "data_b64": base64.b64encode(script_bytes).decode("ascii"),
+        "supported_langs": list(DECRYPTOR_LANGS),
+        "supported_algos": list(SUPPORTED_ALGOS),
     }
 
 

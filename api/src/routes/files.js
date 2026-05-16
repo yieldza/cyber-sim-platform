@@ -279,3 +279,180 @@ filesRouter.get('/:id/download', (req, res) => {
   res.setHeader('Content-Disposition', `attachment; filename="${a.row.filename}"`);
   res.send(a.bytes);
 });
+
+// ─── v0.4.5 — Encrypt / Decrypt workflow ───────────────────────────────────
+// Tests EDR / XDR's ability to detect runtime decryption + drop+exec chain.
+// The XOR-16 obfuscation hides the EICAR signature from static scanners;
+// the matching decryptor stub (.ps1 / .py / .cmd) reproduces the file at
+// runtime, which the behavioural engine should flag.
+
+const ENCRYPT_ALGOS = ['xor-16', 'aes-128-cbc'];
+const DECRYPTOR_LANGS = ['ps1', 'py', 'bat'];
+
+/** Encrypt an existing artifact in the library. */
+filesRouter.post('/:id/encrypt', async (req, res, next) => {
+  try {
+    const parent = getArtifact(req.params.id, req.user.id);
+    if (!parent) return res.status(404).json({ error: 'artifact not found' });
+
+    const { algo = 'xor-16' } = req.body || {};
+    if (!ENCRYPT_ALGOS.includes(algo)) {
+      return res.status(400).json({ error: `algo must be one of: ${ENCRYPT_ALGOS.join(', ')}` });
+    }
+
+    const result = await callWorker('/encrypt', {
+      data_b64: parent.bytes.toString('base64'),
+      algo,
+    });
+
+    const saved = saveArtifact({
+      userId: req.user.id,
+      fileType: 'encrypted',
+      dataB64: result.ciphertext_b64,
+      hashes: result.hashes,
+      size: result.size,
+      sourceOp: 'encrypt',
+      parentId: parent.row.id,
+      metadata: {
+        algo: result.algo,
+        key_b64: result.key_b64,
+        iv_b64: result.iv_b64,
+        original_filename: parent.row.filename,
+        original_file_type: parent.row.file_type,
+      },
+      filename: `encrypted-${parent.row.filename}.enc`,
+    });
+    audit(req.user.id, 'encrypt', {
+      id: saved.id, parent: parent.row.id, algo, sha256: result.hashes.sha256,
+    }, req.ip);
+
+    res.json({
+      id: saved.id,
+      algo: result.algo,
+      key_b64: result.key_b64,
+      iv_b64: result.iv_b64,
+      size: result.size,
+      hashes: result.hashes,
+    });
+  } catch (err) { next(err); }
+});
+
+/** Encrypt an uploaded file (not in the library). */
+filesRouter.post('/encrypt-upload', async (req, res, next) => {
+  try {
+    const { data_b64, filename, algo = 'xor-16' } = req.body || {};
+    if (!data_b64) return res.status(400).json({ error: 'data_b64 required' });
+    if (!ENCRYPT_ALGOS.includes(algo)) {
+      return res.status(400).json({ error: `algo must be one of: ${ENCRYPT_ALGOS.join(', ')}` });
+    }
+    const approx = Math.floor((data_b64.length * 3) / 4);
+    if (approx > 20 * 1024 * 1024) {
+      return res.status(413).json({ error: 'file too large (20 MB max)' });
+    }
+
+    const result = await callWorker('/encrypt', { data_b64, algo });
+    const saved = saveArtifact({
+      userId: req.user.id,
+      fileType: 'encrypted',
+      dataB64: result.ciphertext_b64,
+      hashes: result.hashes,
+      size: result.size,
+      sourceOp: 'encrypt-upload',
+      metadata: {
+        algo: result.algo,
+        key_b64: result.key_b64,
+        iv_b64: result.iv_b64,
+        original_filename: filename || null,
+      },
+      filename: filename ? `encrypted-${filename}.enc` : undefined,
+    });
+    audit(req.user.id, 'encrypt-upload', {
+      id: saved.id, algo, original_filename: filename || null,
+      sha256: result.hashes.sha256,
+    }, req.ip);
+
+    res.json({
+      id: saved.id,
+      algo: result.algo,
+      key_b64: result.key_b64,
+      iv_b64: result.iv_b64,
+      size: result.size,
+      hashes: result.hashes,
+    });
+  } catch (err) { next(err); }
+});
+
+/** Download a decryptor stub (.ps1/.py/.cmd) for an encrypted artifact. */
+filesRouter.get('/:id/decryptor', async (req, res, next) => {
+  try {
+    const a = getArtifact(req.params.id, req.user.id);
+    if (!a) return res.status(404).json({ error: 'artifact not found' });
+    if (a.row.file_type !== 'encrypted') {
+      return res.status(400).json({ error: 'artifact is not an encrypted blob' });
+    }
+    const meta = a.row.metadata ? JSON.parse(a.row.metadata) : {};
+    if (!meta.algo || !meta.key_b64) {
+      return res.status(500).json({ error: 'encrypted artifact missing algo/key metadata' });
+    }
+    const lang = (req.query.lang || 'ps1').toString();
+    if (!DECRYPTOR_LANGS.includes(lang)) {
+      return res.status(400).json({ error: `lang must be one of: ${DECRYPTOR_LANGS.join(', ')}` });
+    }
+
+    const outName = meta.original_filename || 'decrypted.bin';
+    const stub = await callWorker('/decryptor-script', {
+      ciphertext_b64: a.bytes.toString('base64'),
+      algo: meta.algo,
+      key_b64: meta.key_b64,
+      iv_b64: meta.iv_b64 || null,
+      lang,
+      output_filename: outName,
+    });
+    audit(req.user.id, 'decryptor_download', {
+      artifact_id: a.row.id, lang, algo: meta.algo,
+    }, req.ip);
+
+    res.setHeader('Content-Type', stub.mime);
+    res.setHeader('Content-Disposition', `attachment; filename="${stub.filename}"`);
+    res.send(Buffer.from(stub.data_b64, 'base64'));
+  } catch (err) { next(err); }
+});
+
+/** Decrypt an uploaded ciphertext + key. */
+filesRouter.post('/decrypt-upload', async (req, res, next) => {
+  try {
+    const { data_b64, algo = 'xor-16', key_b64, iv_b64, filename } = req.body || {};
+    if (!data_b64) return res.status(400).json({ error: 'data_b64 required' });
+    if (!key_b64) return res.status(400).json({ error: 'key_b64 required' });
+    if (!ENCRYPT_ALGOS.includes(algo)) {
+      return res.status(400).json({ error: `algo must be one of: ${ENCRYPT_ALGOS.join(', ')}` });
+    }
+
+    const result = await callWorker('/decrypt', {
+      ciphertext_b64: data_b64,
+      algo,
+      key_b64,
+      iv_b64,
+    });
+    const saved = saveArtifact({
+      userId: req.user.id,
+      fileType: 'bin',
+      dataB64: result.data_b64,
+      hashes: result.hashes,
+      size: result.size,
+      sourceOp: 'decrypt-upload',
+      metadata: { algo, original_filename: filename || null },
+      filename: filename ? `decrypted-${filename}` : undefined,
+    });
+    audit(req.user.id, 'decrypt-upload', {
+      id: saved.id, algo, sha256: result.hashes.sha256,
+    }, req.ip);
+
+    res.json({
+      id: saved.id,
+      algo,
+      size: result.size,
+      hashes: result.hashes,
+    });
+  } catch (err) { next(err); }
+});

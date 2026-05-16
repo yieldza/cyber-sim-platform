@@ -252,6 +252,106 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.4.5 — 2026-05-16
+
+New **Encrypt / Decrypt** workflow — obfuscate any EICAR-bearing artifact
+to hide its static signature on disk, then download a matching
+decryptor stub (`.ps1` / `.py` / `.cmd`) that restores the original at
+runtime. Tests EDR / XDR detection of the *drop → decrypt → spawn*
+chain that static signatures alone miss.
+
+#### Algorithms
+
+| Algo | Key / IV | Decryptor deps |
+|------|----------|----------------|
+| `xor-16` | 16-byte cycling XOR, no IV | **zero deps** — PowerShell + Python stdlib only |
+| `aes-128-cbc` | 16-byte key + 16-byte IV, PKCS7 padding | PowerShell stdlib `System.Security.Cryptography`; Python needs `cryptography` pkg |
+
+#### Decryptor stub formats (`/api/files/:id/decryptor?lang=…`)
+
+- `ps1` — runnable on Windows. Embeds base64 ciphertext + key + iv + decryption code; writes plaintext alongside.
+- `py`  — runnable on Linux / macOS / Windows. Zero deps for `xor-16`; needs `pip install cryptography` for `aes-128-cbc`.
+- `bat` — Windows `.cmd` launcher that re-invokes `powershell.exe -ExecutionPolicy Bypass -File decryptor.ps1` (pair with the `.ps1` in the same folder, no ExecutionPolicy fights).
+
+#### New worker endpoints
+
+| Endpoint | Body | Returns |
+|----------|------|---------|
+| `POST /encrypt` | `data_b64`, `algo`, `key_b64?`, `iv_b64?` | `ciphertext_b64`, `key_b64`, `iv_b64`, `algo` |
+| `POST /decrypt` | `ciphertext_b64`, `algo`, `key_b64`, `iv_b64?` | `data_b64` (plaintext), `algo` |
+| `POST /decryptor-script` | `ciphertext_b64`, `algo`, `key_b64`, `iv_b64?`, `lang`, `output_filename?` | runnable stub bytes |
+
+#### New API routes
+
+| Route | Purpose |
+|-------|---------|
+| `POST /api/files/:id/encrypt` | Encrypt an existing library artifact (saves new `encrypted` artifact with key/iv in metadata, parent_id chain preserved) |
+| `POST /api/files/encrypt-upload` | Encrypt an uploaded file (≤ 20 MB) without persisting the plaintext |
+| `GET  /api/files/:id/decryptor?lang=ps1\|py\|bat` | Download the matching decryptor stub for an encrypted artifact |
+| `POST /api/files/decrypt-upload` | Decrypt an uploaded ciphertext + key, returns plaintext as a new artifact |
+
+#### Web UI
+
+New **Encrypt / Decrypt** tab with two forms:
+
+- **Encrypt** — pick a library artifact *or* upload a local file
+  (≤ 20 MB), choose algorithm, click *Encrypt*. After encryption,
+  4 download buttons appear: `decryptor.ps1`, `decryptor.py`,
+  `decryptor.cmd`, and the encrypted blob itself.
+- **Decrypt** — upload an encrypted file, paste the key (and IV for
+  AES), click *Decrypt*. The plaintext is saved as a new artifact and
+  auto-downloaded.
+
+#### Operator workflow (red-team-style EDR test)
+
+```
+1. Generate -> file_type=pe (or dropper-ps1, dropper-py …)
+2. Encrypt / Decrypt -> source=that artifact -> algo=xor-16 -> Encrypt
+3. Download `decryptor.cmd` + `decryptor.ps1` + encrypted blob
+4. Drop all three on a Windows test endpoint
+5. Run `decryptor.cmd`. The .ps1 reconstructs the original .exe on disk.
+6. Observe: AV does NOT flag the encrypted blob (no static EICAR);
+   it DOES flag the decryptor's file_create when the plaintext
+   EICAR hits disk, plus any spawn-from-new-file chain.
+```
+
+#### Safety note
+
+The encrypted artifact's metadata stores `algo` + `key_b64` (+ `iv_b64`)
+in SQLite so the decryptor stub can be regenerated on demand. Treat the
+artifact store as sensitive — if the DB leaks, decryption keys leak with
+it. The workflow is for *authorized* blue-team testing only.
+
+#### Worker image growth
+
+Worker image grew from 330 MB → 339 MB due to the `cryptography==43.0.3`
+package added for `aes-128-cbc`. `xor-16` paths have zero deps.
+
+Image tags published to Docker Hub (multiarch `linux/amd64` + `linux/arm64`):
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.4.5       327 MB
+docker.io/124000pk/yieldpk:csp-worker-0.4.5    339 MB
+docker.io/124000pk/yieldpk:csp-web-0.4.5        40 MB
+```
+
+### How to update an existing deployment to v0.4.5
+
+```bash
+cd /path/to/csp
+sed -i.bak \
+  -e 's/^TAG_API=.*/TAG_API=csp-api-0.4.5/' \
+  -e 's/^TAG_WORKER=.*/TAG_WORKER=csp-worker-0.4.5/' \
+  -e 's/^TAG_WEB=.*/TAG_WEB=csp-web-0.4.5/' \
+  .env
+
+docker compose pull && docker compose up -d
+# Web UI gains an "Encrypt / Decrypt" tab.
+```
+
+No DB migration. Existing artifacts unaffected — they remain decryptable
+only after being explicitly encrypted via the new tab.
+
 ### v0.4.4 — 2026-05-16
 
 Generate-tab size input tightened from free-form number to a strict
