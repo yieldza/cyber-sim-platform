@@ -50,3 +50,39 @@ def test_agent_script_is_ascii_clean(relpath):
                 f"in ANSI/OEM codepage and will mojibake the character, "
                 f"breaking string terminators. Use ASCII only."
             )
+
+
+# PowerShell reserves a set of names as "common parameters" — they're
+# attached to every advanced function/script automatically. Declaring a
+# param block parameter with one of these names produces:
+#   "A parameter with the name 'X' was defined multiple times for the command."
+# and the script exits with code 1 before any line of body code runs.
+#
+# Source: about_CommonParameters — the full list as of PS 7.x.
+POWERSHELL_RESERVED = {
+    "Verbose", "Debug", "ErrorAction", "WarningAction", "InformationAction",
+    "ErrorVariable", "WarningVariable", "InformationVariable",
+    "OutVariable", "OutBuffer", "PipelineVariable",
+    "WhatIf", "Confirm",
+}
+
+def test_ps1_param_block_avoids_reserved_names():
+    """Regression guard for v0.7.2 — '$Verbose' shadowing -Verbose."""
+    import re
+    p = REPO_ROOT / "agent/powershell/csp-agent.ps1"
+    text = p.read_text(encoding="utf-8")
+    # Grab the contiguous param(...) block at the top of the script.
+    m = re.search(r"param\s*\((.*?)\)", text, flags=re.DOTALL)
+    assert m, "could not locate param(...) block in csp-agent.ps1"
+    block = m.group(1)
+    # Match `$Foo` after a type cast like `[switch]` / `[string]` etc.
+    names = re.findall(r"\$([A-Za-z_][A-Za-z0-9_]*)\b", block)
+    clashes = [n for n in names if n in POWERSHELL_RESERVED]
+    assert not clashes, (
+        f"csp-agent.ps1 param block declares PowerShell-reserved names: "
+        f"{clashes}. Rename them (e.g. $Verbose -> $VerboseLog). "
+        f"PowerShell auto-attaches -Verbose / -Debug / etc as common "
+        f"parameters; declaring them again throws "
+        f"'parameter ... was defined multiple times for the command' "
+        f"and the script exits before any body code runs."
+    )

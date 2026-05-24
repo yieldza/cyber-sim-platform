@@ -252,6 +252,44 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.7.2 — 2026-05-24
+
+**Fix `-Verbose` parameter collision in csp-agent.ps1.**
+
+Symptom after the v0.7.1 ASCII fix landed:
+
+```
+A parameter with the name 'Verbose' was defined multiple times for the command.
+    + CategoryInfo          : MetadataError: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : ParameterNameAlreadyExistsForCommand
+[csp-launcher] csp-agent.ps1 exited with code 1
+```
+
+Root cause: PowerShell reserves `-Verbose` as a "common parameter" and
+auto-attaches it to every advanced function/script. The v0.6.0 param
+block declared `[switch] $Verbose` explicitly, which collides at
+parse time. The script exited with code 1 before any body code ran.
+
+Fix:
+- Rename `$Verbose` -> `$VerboseLog` in the param block and the one
+  call site.
+- New regression test `test_ps1_param_block_avoids_reserved_names`
+  fails the suite if a future change re-introduces any PowerShell
+  common parameter name (`-Verbose`, `-Debug`, `-WhatIf`, `-Confirm`,
+  `-ErrorAction`, ...) in the param block.
+
+Image tags:
+```
+docker.io/124000pk/yieldpk:csp-api-0.7.2
+docker.io/124000pk/yieldpk:csp-worker-0.7.2
+docker.io/124000pk/yieldpk:csp-web-0.7.2
+```
+
+If you downloaded the agent files from v0.7.1, re-download from the
+operator UI before running on Windows. Existing agents that were
+running v0.6.0 / v0.7.0 are unaffected (they crash at startup so
+nothing was actually deployed).
+
 ### v0.7.1 — 2026-05-24
 
 **Critical bug fix — agent scripts on Windows.**

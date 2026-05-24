@@ -37,7 +37,10 @@ param(
   [string] $Label = $env:COMPUTERNAME,
   [int]    $IntervalSeconds = 30,
   [switch] $Once,
-  [switch] $Verbose
+  # NOTE: cannot be named -Verbose. PowerShell reserves -Verbose as a
+  # common parameter; declaring it on the param block produces
+  # 'A parameter with the name Verbose was defined multiple times'.
+  [switch] $VerboseLog
 )
 
 $ErrorActionPreference = 'Stop'
@@ -171,7 +174,7 @@ $AuthFails = 0
 
 while ($true) {
   try {
-    if ($Verbose) { Write-Log 'beacon...' 'DEBUG' }
+    if ($VerboseLog) { Write-Log 'beacon...' 'DEBUG' }
     $resp = Invoke-C2 'agent-c2/beacon' @{} $Hdr
     $AuthFails = 0  # reset on any successful beacon
 
