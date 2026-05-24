@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CSP Cyber Sim Platform — Python agent (Linux / macOS).
+CSP Cyber Sim Platform - Python agent (Linux / macOS).
 
 Caldera-style HTTP-polling agent. The agent:
 
@@ -10,7 +10,7 @@ Caldera-style HTTP-polling agent. The agent:
   4. POSTs the captured stdout / stderr / exit code back to the C2.
 
 Safety guardrails:
-  * The agent only runs commands sent by the C2 — but the C2 only queues
+  * The agent only runs commands sent by the C2 - but the C2 only queues
     commands that came verbatim from the catalog (server side is the source
     of truth). The agent does not parse arguments from the network.
   * Per-task timeout enforced locally (cap 60 s).
@@ -118,7 +118,7 @@ def run_task(task: dict, default_timeout: int) -> dict:
 
     started = time.monotonic()
     try:
-        proc = subprocess.run(  # noqa: S603 — argv from C2-trusted catalog
+        proc = subprocess.run(  # noqa: S603 - argv from C2-trusted catalog
             argv,
             capture_output=True,
             timeout=timeout,
@@ -222,10 +222,10 @@ def main() -> int:
             resp = _http(f"{c2}/agent-c2/beacon", {}, headers)
             auth_fails = 0  # reset on success
 
-            # Operator killed this agent from the console — exit cleanly.
+            # Operator killed this agent from the console - exit cleanly.
             if resp.get("shutdown"):
                 reason = resp.get("reason", "shutdown_signal")
-                log.info("shutdown signal received from C2 (reason=%s) — exiting", reason)
+                log.info("shutdown signal received from C2 (reason=%s) - exiting", reason)
                 return 0
 
             tasks = resp.get("tasks", [])
@@ -235,17 +235,17 @@ def main() -> int:
                 log.info("running %s/%s (%s)", t["technique_id"], t["test_name"], t["executor"])
                 result = run_task(t, default_timeout=int(t.get("timeout_sec") or 15))
                 _http(f"{c2}/agent-c2/result", result, headers)
-                log.info(" → status=%s exit=%s dur=%sms",
+                log.info(" -> status=%s exit=%s dur=%sms",
                          result["status"], result["exit_code"], result["duration_ms"])
         except RuntimeError as exc:
             msg = str(exc)
             log.error("c2 error: %s", msg)
             # If the server rejects our credentials repeatedly the agent
-            # has likely been removed from the operator side — bail out.
+            # has likely been removed from the operator side - bail out.
             if msg.startswith("http 401"):
                 auth_fails += 1
                 if auth_fails >= AUTH_FAIL_BACKOFF:
-                    log.info("repeated 401 from C2 (%d) — agent appears revoked, exiting",
+                    log.info("repeated 401 from C2 (%d) - agent appears revoked, exiting",
                              auth_fails)
                     return 0
         except KeyboardInterrupt:

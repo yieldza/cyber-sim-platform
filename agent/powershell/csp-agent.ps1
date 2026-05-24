@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  CSP Cyber Sim Platform — PowerShell agent (Windows).
+  CSP Cyber Sim Platform - PowerShell agent (Windows).
 
 .DESCRIPTION
   Caldera-style HTTP-polling agent. Registers with the C2 using a one-time
@@ -24,7 +24,7 @@
   Beacon interval (default: server-controlled, fallback 30 s).
 
 .PARAMETER Once
-  Single beacon then exit — useful for debugging.
+  Single beacon then exit - useful for debugging.
 
 .EXAMPLE
   .\csp-agent.ps1 -C2 https://csp.example.com -EnrollToken ent_abc...
@@ -175,10 +175,10 @@ while ($true) {
     $resp = Invoke-C2 'agent-c2/beacon' @{} $Hdr
     $AuthFails = 0  # reset on any successful beacon
 
-    # Operator killed this agent from the console — exit cleanly.
+    # Operator killed this agent from the console - exit cleanly.
     if ($resp.shutdown) {
       $reason = if ($resp.reason) { $resp.reason } else { 'shutdown_signal' }
-      Write-Log "shutdown signal received from C2 (reason=$reason) — exiting"
+      Write-Log "shutdown signal received from C2 (reason=$reason) - exiting"
       exit 0
     }
 
@@ -194,11 +194,11 @@ while ($true) {
   } catch {
     $msg = $_.Exception.Message
     Write-Log "loop error: $msg" 'WARN'
-    # Repeated 401s mean the operator has removed this agent — bail out.
+    # Repeated 401s mean the operator has removed this agent - bail out.
     if ($msg -match '401' -or $msg -match 'Unauthorized') {
       $AuthFails++
       if ($AuthFails -ge $AuthFailBackoff) {
-        Write-Log "repeated 401 from C2 ($AuthFails) — agent appears revoked, exiting"
+        Write-Log "repeated 401 from C2 ($AuthFails) - agent appears revoked, exiting"
         exit 0
       }
     }

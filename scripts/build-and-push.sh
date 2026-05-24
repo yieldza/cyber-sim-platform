@@ -13,7 +13,7 @@
 #   scripts/build-and-push.sh --multiarch # buildx for linux/amd64,linux/arm64 (requires buildx)
 #   scripts/build-and-push.sh api         # only one service
 #
-# Compatible with bash 3.2 (macOS default) — uses case statements rather
+# Compatible with bash 3.2 (macOS default) - uses case statements rather
 # than associative arrays.
 set -euo pipefail
 
@@ -95,7 +95,7 @@ for svc in $services; do
   fflag=""
   [[ -n "$dockerfile" ]] && fflag="-f $dockerfile"
   echo
-  echo "==========> $svc  →  $ref   (mode=$mode$([[ $multiarch -eq 1 ]] && echo ", multiarch"))"
+  echo "==========> $svc  ->  $ref   (mode=$mode$([[ $multiarch -eq 1 ]] && echo ", multiarch"))"
   echo "             ctx=$ctx ${fflag}"
   if [[ $multiarch -eq 1 ]]; then
     pushflag="--load"
@@ -115,7 +115,7 @@ for svc in $services; do
 done
 
 echo
-echo "✓ done. Images:"
+echo "OK done. Images:"
 for svc in $services; do
   tag="$(tag_for "$svc")"
   echo "  ${IMAGE_REPO}:${tag}"

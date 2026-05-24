@@ -1,6 +1,6 @@
 @echo off
 :: ============================================================================
-::  CSP — PowerShell agent launcher  (auto-bypass ExecutionPolicy)
+::  CSP - PowerShell agent launcher  (auto-bypass ExecutionPolicy)
 :: ============================================================================
 ::  Why this file exists:
 ::    Windows' default PowerShell ExecutionPolicy is "Restricted", which

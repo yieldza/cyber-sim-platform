@@ -1,4 +1,4 @@
-// CSP Cyber Sim Platform — C# / .NET agent (Windows).
+// CSP Cyber Sim Platform - C# / .NET agent (Windows).
 //
 // Build:
 //     dotnet new console -n CspAgent -o CspAgent
@@ -8,7 +8,7 @@
 // Run:
 //     CspAgent.exe --c2 https://csp.example.com --enroll-token ent_xxx
 //
-// Caldera-style HTTP-polling agent: register → beacon → run → report.
+// Caldera-style HTTP-polling agent: register -> beacon -> run -> report.
 // Only executes commands sent by the C2 (powershell / cmd). All commands
 // originate verbatim from the catalog; the agent does not parse arbitrary
 // input from the network. Per-task timeout, output truncation 32 KB.
@@ -88,14 +88,14 @@ internal static class CspAgent
                 var resp = await PostAsync(opts.C2, "/agent-c2/beacon", new {}, headers);
                 authFails = 0;  // reset on success
 
-                // Operator killed this agent from the console — exit cleanly.
+                // Operator killed this agent from the console - exit cleanly.
                 if (resp.HasValue && resp.Value.TryGetProperty("shutdown", out var sh)
                     && sh.ValueKind == JsonValueKind.True)
                 {
                     string reason = "shutdown_signal";
                     if (resp.Value.TryGetProperty("reason", out var rs) && rs.ValueKind == JsonValueKind.String)
                         reason = rs.GetString() ?? reason;
-                    Log($"shutdown signal received from C2 (reason={reason}) — exiting");
+                    Log($"shutdown signal received from C2 (reason={reason}) - exiting");
                     return 0;
                 }
 
@@ -123,13 +123,13 @@ internal static class CspAgent
             catch (Exception e)
             {
                 Log("loop error: " + e.Message, "WARN");
-                // Repeated 401s mean the agent has been removed from C2 — bail out.
+                // Repeated 401s mean the agent has been removed from C2 - bail out.
                 if (e.Message.Contains("HTTP 401"))
                 {
                     authFails++;
                     if (authFails >= AuthFailBackoff)
                     {
-                        Log($"repeated 401 from C2 ({authFails}) — agent appears revoked, exiting");
+                        Log($"repeated 401 from C2 ({authFails}) - agent appears revoked, exiting");
                         return 0;
                     }
                 }

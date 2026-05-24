@@ -252,6 +252,45 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.7.1 — 2026-05-24
+
+**Critical bug fix — agent scripts on Windows.**
+
+The v0.6.0 / v0.7.0 PowerShell agent shipped with UTF-8 em-dashes (`—`)
+in string literals and comments. PowerShell on Windows reads `.ps1` files
+using the system ANSI codepage by default. The three-byte UTF-8 em-dash
+(`0xE2 0x80 0x94`) was decoded as `â€"` — and the literal `"` inside that
+triplet prematurely closed every double-quoted string that contained it.
+Result on the endpoint:
+
+```
+The string is missing the terminator: ".
+Missing closing '}' in statement block or type definition.
+[csp-launcher] csp-agent.ps1 exited with code 1
+```
+
+Fix:
+
+- Replaced every em-dash / en-dash / curly quote / ellipsis / arrow with
+  its ASCII equivalent across all agent scripts:
+  `agent/powershell/csp-agent.ps1`, `agent/powershell/csp-agent.cmd`,
+  `agent/csharp/CspAgent.cs`, `agent/python/csp_agent.py`,
+  `scripts/build-and-push.sh`.
+- Added a regression test (`worker/tests/test_agent_scripts_ascii.py`)
+  that fails the test suite if any of those files contains a non-ASCII
+  byte. CI will catch this class of bug from now on.
+
+Image tags published to Docker Hub:
+```
+docker.io/124000pk/yieldpk:csp-api-0.7.1
+docker.io/124000pk/yieldpk:csp-worker-0.7.1
+docker.io/124000pk/yieldpk:csp-web-0.7.1
+```
+
+If you downloaded `csp-agent.ps1` or `csp-agent.cmd` from a pre-v0.7.1
+deployment, re-download from the operator UI (or git pull + rebuild)
+before running on Windows.
+
 ### v0.7.0 — 2026-05-24
 
 **Coverage export + SIEM webhook + dormant-agent housekeeping.**
