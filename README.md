@@ -252,6 +252,35 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.7.3 — 2026-05-24
+
+**Pre-push pipeline: real PowerShell parser gate.**
+
+The v0.7.1 and v0.7.2 PS1 bugs (mojibake + `$Verbose` collision) both
+slipped past the pre-push checks because nothing actually parsed the
+script with the real PowerShell engine. Added:
+
+- **`scripts/check-ps1.sh`** — runs
+  `[System.Management.Automation.Language.Parser]::ParseFile()` inside
+  the official `mcr.microsoft.com/powershell:latest` container against
+  `agent/powershell/csp-agent.ps1`. Reports line + column for any
+  parse error.
+- **`test_ps1_parses_clean_with_real_powershell`** — pytest wrapper
+  that invokes the script above. Skips automatically when docker is
+  not available, so the local suite stays runnable on a plain Mac.
+- **Updated CLAUDE.md pre-push checklist** — step 3 now mandates this
+  parser check whenever a file under `agent/powershell/` changes.
+
+No production-code changes. This release exists purely to enforce the
+gate going forward — no need to update endpoints unless you want to
+get the (otherwise identical) image tag.
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.7.3
+docker.io/124000pk/yieldpk:csp-worker-0.7.3
+docker.io/124000pk/yieldpk:csp-web-0.7.3
+```
+
 ### v0.7.2 — 2026-05-24
 
 **Fix `-Verbose` parameter collision in csp-agent.ps1.**

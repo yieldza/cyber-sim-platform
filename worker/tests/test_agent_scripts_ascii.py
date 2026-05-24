@@ -86,3 +86,52 @@ def test_ps1_param_block_avoids_reserved_names():
         f"'parameter ... was defined multiple times for the command' "
         f"and the script exits before any body code runs."
     )
+
+
+# ---------- Real-parser check (docker + pwsh) ------------------------------
+#
+# String-only checks miss whole classes of bugs (operator precedence,
+# brace nesting, escape rules). For belt-and-braces we invoke the actual
+# PowerShell parser via the official microsoft/powershell container.
+#
+# Skipped automatically when docker is not available — keeps the suite
+# green on developer laptops without docker, while CI and pre-push runs
+# (where docker IS available) still enforce it.
+
+import shutil
+import subprocess
+
+
+def _docker_available() -> bool:
+    if not shutil.which("docker"):
+        return False
+    try:
+        r = subprocess.run(
+            ["docker", "info"], capture_output=True, timeout=5, check=False
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+@pytest.mark.skipif(
+    not _docker_available(),
+    reason="docker not running — skipping real-parser PowerShell check"
+)
+def test_ps1_parses_clean_with_real_powershell():
+    """Final gate — boot the real pwsh parser on csp-agent.ps1.
+
+    Catches the bugs that surfaced live in v0.7.1 (em-dash mojibake) and
+    v0.7.2 ($Verbose collision) before they hit Docker Hub. Runs in ~5s
+    once the image is cached, ~30s on first invocation.
+    """
+    script = REPO_ROOT / "scripts/check-ps1.sh"
+    assert script.exists(), "scripts/check-ps1.sh missing"
+    r = subprocess.run(
+        ["bash", str(script)],
+        capture_output=True, text=True, timeout=300, check=False,
+    )
+    assert r.returncode == 0, (
+        f"PowerShell parser rejected csp-agent.ps1 (exit {r.returncode})\n"
+        f"--- stdout ---\n{r.stdout}\n--- stderr ---\n{r.stderr}"
+    )
