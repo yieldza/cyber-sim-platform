@@ -57,6 +57,10 @@ ensureColumn('agent_tasks', 'truncated',   'truncated INTEGER NOT NULL DEFAULT 0
 ensureColumn('agent_tasks', 'sent_at',     'sent_at TEXT');
 ensureColumn('agent_tasks', 'finished_at', 'finished_at TEXT');
 
+// coverage_results — v0.7.0 adds `source` column so webhook-marked rows
+// can be distinguished from operator-marked rows in the UI / audit log.
+ensureColumn('coverage_results', 'source', 'source TEXT');
+
 // Bootstrap admin user from env on first start
 const ADMIN_USER = process.env.ADMIN_USER;
 const ADMIN_PASS = process.env.ADMIN_PASS;

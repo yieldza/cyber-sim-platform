@@ -355,7 +355,18 @@ td .row-action.danger:hover { background: var(--accent-2); color: #0b1020; }
   align-items: center;
   gap: 12px;
   margin: 12px 0;
+  flex-wrap: wrap;
 }
+.webhook-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  flex-wrap: wrap;
+}
+#webhookEventsTable { margin-top: 10px; }
+#webhookEventsTable td { font-size: 12px; padding: 4px 8px; }
+#dormantConfigView { font-size: 11px; }
 .agent-controls #enrollTokenView {
   font-size: 11px;
   color: var(--accent);

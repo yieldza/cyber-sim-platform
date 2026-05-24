@@ -183,7 +183,10 @@
 
         <div class="agent-controls">
           <button id="newEnrollToken">New enroll token</button>
+          <button id="sweepDormantBtn" type="button" class="secondary">Run dormant sweep</button>
+          <button id="cleanupDormantBtn" type="button" class="danger">Cleanup dormant</button>
           <span id="enrollTokenView" class="muted"></span>
+          <span id="dormantConfigView" class="muted"></span>
         </div>
 
         <h4 class="section-h">Active agents</h4>
@@ -275,10 +278,35 @@
             </select>
           </label>
           <button id="refreshCoverage" type="button">Refresh</button>
+          <button id="exportCoverageCsv" type="button" class="secondary">Export CSV</button>
+          <button id="exportCoverageJson" type="button" class="secondary">Export JSON</button>
         </div>
 
         <div id="coverageSummary" class="coverage-summary"></div>
         <div id="coverageMatrix" class="coverage-matrix"></div>
+
+        <h4 class="section-h">Webhook (auto-mark from SIEM)</h4>
+        <p class="muted">
+          Configure your SIEM (XSIAM / Splunk / Sentinel / …) to POST alert events to
+          <code>/coverage-webhook/alert</code> with header
+          <code>X-CSP-Webhook-Token: &lt;secret&gt;</code>. Body must include
+          <code>technique_id</code>; optional fields: <code>alert_name</code>,
+          <code>severity</code>, <code>source</code>, <code>notes</code>.
+          The matched technique is auto-marked <em>detected</em>.
+        </p>
+        <div class="webhook-controls">
+          <button id="webhookSecretCreate" type="button">Generate / rotate webhook secret</button>
+          <button id="webhookSecretRevoke" type="button" class="danger">Revoke secret</button>
+          <button id="webhookEventsRefresh" type="button" class="secondary">Recent events</button>
+          <span id="webhookSecretStatus" class="muted"></span>
+        </div>
+        <pre id="webhookSecretView" class="result hidden"></pre>
+        <table id="webhookEventsTable" class="hidden">
+          <thead>
+            <tr><th>When</th><th>Tech</th><th>Source</th><th>Alert</th><th>Status</th><th>Reason</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
 
         <h4 class="section-h">Mark detection result</h4>
         <form id="coverageForm">

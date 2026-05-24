@@ -56,7 +56,7 @@ export function requireAgent(req, res, next) {
   let agent;
   try {
     agent = db.prepare(
-      "SELECT * FROM agents WHERE id = ? AND status IN ('active','killed')"
+      "SELECT * FROM agents WHERE id = ? AND status IN ('active','killed','dormant')"
     ).get(id);
   } catch (err) {
     console.error(`[requireAgent] db error for agent_id=${id}: ${err.message}`);

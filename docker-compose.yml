@@ -46,6 +46,8 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - ADMIN_USER=${ADMIN_USER}
       - ADMIN_PASS=${ADMIN_PASS}
+      - AGENT_DORMANT_HOURS=${AGENT_DORMANT_HOURS:-24}
+      - AGENT_SWEEP_INTERVAL_MIN=${AGENT_SWEEP_INTERVAL_MIN:-60}
     ports:
       - "${API_PORT:-8080}:8080"
     volumes:

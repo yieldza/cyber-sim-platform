@@ -114,8 +114,37 @@ CREATE TABLE IF NOT EXISTS coverage_results (
   edr_product       TEXT,                               -- e.g. "Cortex XDR", "CrowdStrike"
   alert_name        TEXT,                               -- name of alert/BTP rule that fired
   notes             TEXT,
+  source            TEXT,                               -- 'manual' | 'webhook' | 'webhook:<source>'
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_coverage_user ON coverage_results(user_id, technique_id);
 CREATE INDEX IF NOT EXISTS idx_coverage_tech ON coverage_results(technique_id);
+
+-- Coverage webhook secrets — one per user. Allows external SIEMs / XSIAM
+-- to POST alert events back to CSP, auto-marking the technique 'detected'.
+-- Secret is sent via X-CSP-Webhook-Token header (compared in constant time).
+CREATE TABLE IF NOT EXISTS coverage_webhook_secrets (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL UNIQUE REFERENCES users(id),
+  secret_hash TEXT NOT NULL,                            -- bcrypt(secret)
+  label       TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  last_used_at TEXT
+);
+
+-- Log every webhook hit (success or failure) for forensic / debugging use.
+CREATE TABLE IF NOT EXISTS coverage_webhook_events (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER REFERENCES users(id),
+  technique_id TEXT,
+  source       TEXT,           -- e.g. 'xsiam', 'splunk', 'custom'
+  alert_name   TEXT,
+  severity     TEXT,
+  status       TEXT NOT NULL,  -- 'accepted' | 'rejected'
+  reason       TEXT,
+  raw_body     TEXT,
+  ip           TEXT,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_webhook_events_user ON coverage_webhook_events(user_id, created_at);

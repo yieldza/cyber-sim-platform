@@ -552,11 +552,17 @@ async function refreshAgents() {
         <td>${a.platform}</td>
         <td>${a.last_seen || '-'}</td>
         <td>${a.beacon_count}</td>
-        <td>${a.status}</td>
-        <td>${a.status === 'active' ? `<button data-kill="${a.id}">kill</button>` : ''}</td>
+        <td>${renderAgentStatus(a.status)}</td>
+        <td>
+          ${a.status === 'active'  ? `<button data-kill="${a.id}">kill</button>` : ''}
+          ${a.status === 'dormant' ? `<span class="muted">silent</span>` : ''}
+          <button data-del="${a.id}" class="row-action danger">delete</button>
+        </td>
       `;
       const killBtn = tr.querySelector('button[data-kill]');
       if (killBtn) killBtn.onclick = () => killAgent(a.id);
+      const delBtn = tr.querySelector('button[data-del]');
+      if (delBtn) delBtn.onclick = () => deleteAgent(a.id);
       tbody.appendChild(tr);
 
       if (a.status === 'active') {
@@ -569,6 +575,30 @@ async function refreshAgents() {
     }
     repopulateTaskTechSelect();
   } catch (err) { console.error(err); }
+}
+
+function renderAgentStatus(s) {
+  // Visual tag so dormant rows are obvious in a long agent list.
+  const cls = {
+    active:  'badge runnable',
+    dormant: 'badge',
+    killed:  'badge',
+  }[s] || 'badge';
+  return `<span class="${cls}">${escapeHtml(s)}</span>`;
+}
+
+async function deleteAgent(id) {
+  if (!confirm(
+    `Hard-delete agent ${id} and ALL of its task history?\n\n` +
+    `This cannot be undone. Use this for dormant/dead rows you no ` +
+    `longer want to see. Prefer "kill" for active agents.`
+  )) return;
+  try {
+    await api(`/agents/${id}`, { method: 'DELETE' });
+    refreshAgents();
+  } catch (err) {
+    alert('delete failed: ' + err.message);
+  }
 }
 
 async function killAgent(id) {
@@ -864,5 +894,148 @@ $('#coverageForm').addEventListener('submit', async (e) => {
 $('#refreshCoverage')?.addEventListener('click', loadCoverage);
 $('#coverageTacticFilter')?.addEventListener('change', renderCoverageMatrix);
 $('#coverageStatusFilter')?.addEventListener('change', renderCoverageMatrix);
+
+// --- Coverage export (CSV / JSON) ----------------------------------------
+async function downloadCoverageExport(fmt) {
+  // We hit the API with the JWT in the header, then offer the response
+  // as a file download in the browser. (fetch + Blob — there is no <a
+  // download> trick that lets us inject custom auth headers.)
+  try {
+    const res = await fetch(`/api/coverage/export?format=${fmt}`, {
+      headers: { 'authorization': 'Bearer ' + token() },
+    });
+    if (!res.ok) throw new Error((await res.text()) || `http ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const stamp = new Date().toISOString().slice(0, 10);
+    a.download = `csp-coverage-${stamp}.${fmt}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    $('#coverageResult').textContent = 'export failed: ' + err.message;
+  }
+}
+$('#exportCoverageCsv')?.addEventListener('click', () => downloadCoverageExport('csv'));
+$('#exportCoverageJson')?.addEventListener('click', () => downloadCoverageExport('json'));
+
+// --- Webhook secret management -------------------------------------------
+async function refreshWebhookStatus() {
+  try {
+    const s = await api('/coverage/webhook/secret');
+    const view = $('#webhookSecretStatus');
+    if (!view) return;
+    if (s.exists) {
+      view.textContent = `secret exists · created ${s.created_at}` +
+        (s.last_used_at ? ` · last used ${s.last_used_at}` : ' · never used');
+    } else {
+      view.textContent = 'no webhook secret configured';
+    }
+  } catch (err) { /* silent — not critical */ }
+}
+
+$('#webhookSecretCreate')?.addEventListener('click', async () => {
+  if (!confirm('Generate a new webhook secret? Any existing secret will be invalidated.')) return;
+  try {
+    const res = await api('/coverage/webhook/secret', { method: 'POST', body: { label: 'web-ui' } });
+    const view = $('#webhookSecretView');
+    view.classList.remove('hidden');
+    view.textContent =
+      `# Save this secret NOW — it will not be shown again.\n` +
+      `# Endpoint:  ${location.origin}${res.endpoint}\n` +
+      `# Header:    ${res.header}\n\n` +
+      `${res.secret}\n\n` +
+      `# Sample SIEM webhook config:\n` +
+      JSON.stringify(res.sample, null, 2);
+    refreshWebhookStatus();
+  } catch (err) {
+    alert('failed to create secret: ' + err.message);
+  }
+});
+
+$('#webhookSecretRevoke')?.addEventListener('click', async () => {
+  if (!confirm('Revoke the webhook secret? SIEM POSTs will start returning 401.')) return;
+  try {
+    await api('/coverage/webhook/secret', { method: 'DELETE' });
+    $('#webhookSecretView').classList.add('hidden');
+    refreshWebhookStatus();
+  } catch (err) {
+    alert('revoke failed: ' + err.message);
+  }
+});
+
+$('#webhookEventsRefresh')?.addEventListener('click', async () => {
+  try {
+    const r = await api('/coverage/webhook/events');
+    const tbl = $('#webhookEventsTable');
+    const tbody = tbl.querySelector('tbody');
+    tbody.innerHTML = '';
+    if (!r.events.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="muted">no events yet</td></tr>';
+    } else {
+      for (const e of r.events) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="muted">${e.created_at}</td>
+          <td><code>${escapeHtml(e.technique_id || '')}</code></td>
+          <td>${escapeHtml(e.source || '')}</td>
+          <td>${escapeHtml(e.alert_name || '')}</td>
+          <td>${e.status === 'accepted' ? '✓' : '✗'} ${e.status}</td>
+          <td class="muted">${escapeHtml(e.reason || '')}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+    tbl.classList.remove('hidden');
+  } catch (err) {
+    alert('failed to fetch events: ' + err.message);
+  }
+});
+
+// Auto-refresh webhook status when entering Coverage tab.
+document.querySelector('.tab[data-tab="coverage"]')?.addEventListener('click', refreshWebhookStatus);
+
+// --- Dormant-agent housekeeping ------------------------------------------
+async function refreshDormantConfig() {
+  try {
+    const c = await api('/agents/dormant-config');
+    const v = $('#dormantConfigView');
+    if (v) v.textContent =
+      `dormant ≥ ${c.dormant_threshold_hours}h · sweep every ${c.sweep_interval_minutes}m`;
+  } catch { /* tab may not be visible */ }
+}
+
+$('#sweepDormantBtn')?.addEventListener('click', async () => {
+  try {
+    const r = await api('/agents/sweep-dormant', { method: 'POST', body: {} });
+    alert(
+      `Sweep complete.\n` +
+      `Threshold: ${r.threshold_hours}h\n` +
+      `Marked dormant (yours): ${r.marked.length}\n` +
+      `Marked dormant (all users): ${r.marked_total}`
+    );
+    refreshAgents();
+  } catch (err) {
+    alert('sweep failed: ' + err.message);
+  }
+});
+
+$('#cleanupDormantBtn')?.addEventListener('click', async () => {
+  if (!confirm(
+    'Delete all dormant agents AND their tasks?\n\n' +
+    'This is irreversible. Active and killed agents are unaffected.'
+  )) return;
+  try {
+    const r = await api('/agents/cleanup-dormant', { method: 'POST', body: {} });
+    alert(`Deleted ${r.deleted} dormant agent(s).`);
+    refreshAgents();
+  } catch (err) {
+    alert('cleanup failed: ' + err.message);
+  }
+});
+
+// Show config when Agents tab opens.
+document.querySelector('.tab[data-tab="agents"]')?.addEventListener('click', refreshDormantConfig);
 
 bootstrap();

@@ -15,6 +15,7 @@ import {
   requireAgent,
 } from '../services/agentAuth.js';
 import { callWorker } from '../services/workerClient.js';
+import { sweepDormantAgents, agentSweepConfig } from '../services/agentSweeper.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Inside the API image agent/ is bundled at /app/agent ; in dev it lives
@@ -97,6 +98,55 @@ operatorAgentsRouter.post('/enroll-token', (req, res) => {
   res.json({ token, expires_at });
 });
 
+// ─── Dormant-agent housekeeping ────────────────────────────────────────────
+// Static segments MUST be declared before /:id catch-all (the route-ordering
+// bug we fixed in milestone C). Keep these contiguous.
+
+operatorAgentsRouter.get('/dormant-config', (_req, res) => {
+  res.json({
+    dormant_threshold_hours: agentSweepConfig.dormantHours,
+    sweep_interval_minutes:  agentSweepConfig.sweepIntervalMinutes,
+  });
+});
+
+operatorAgentsRouter.post('/sweep-dormant', (req, res) => {
+  // Manual trigger — useful right after killing a batch of test endpoints
+  // when the operator doesn't want to wait for the scheduled sweep.
+  const hours = Math.max(1, parseInt(req.body?.hours, 10) || agentSweepConfig.dormantHours);
+  const marked = sweepDormantAgents({ hours });
+  // Filter to caller's own agents for the response so we don't leak
+  // hostnames from other users' agents (the underlying sweep is global,
+  // which is correct — anyone's stale agents should be flagged).
+  const mine = marked.filter(m => m.user_id === req.user.id);
+  audit(req.user.id, 'agent_sweep_manual',
+    { hours, marked_total: marked.length, marked_mine: mine.length }, req.ip);
+  res.json({
+    threshold_hours: hours,
+    marked_total: marked.length,
+    marked: mine.map(m => ({ id: m.id, hostname: m.hostname, last_seen: m.last_seen })),
+  });
+});
+
+// Hard-delete every dormant agent that belongs to the caller. Cascades
+// to their tasks. Skipped agents (active/killed) are unaffected.
+operatorAgentsRouter.post('/cleanup-dormant', (req, res) => {
+  const rows = db.prepare(
+    "SELECT id FROM agents WHERE user_id = ? AND status = 'dormant'"
+  ).all(req.user.id);
+  if (!rows.length) return res.json({ deleted: 0, agents: [] });
+
+  const delTasks  = db.prepare('DELETE FROM agent_tasks WHERE agent_id = ?');
+  const delAgent  = db.prepare('DELETE FROM agents WHERE id = ?');
+  const tx = db.transaction((ids) => {
+    for (const id of ids) { delTasks.run(id); delAgent.run(id); }
+  });
+  tx(rows.map(r => r.id));
+
+  audit(req.user.id, 'agent_cleanup_dormant',
+    { count: rows.length, ids: rows.map(r => r.id) }, req.ip);
+  res.json({ deleted: rows.length, agents: rows.map(r => r.id) });
+});
+
 // Static segment must be declared BEFORE /:id catch-all
 operatorAgentsRouter.get('/tasks/:taskId', (req, res) => {
   const row = db.prepare(`
@@ -132,6 +182,18 @@ operatorAgentsRouter.post('/:id/kill', (req, res) => {
     .run(req.params.id, req.user.id);
   if (r.changes === 0) return res.status(404).json({ error: 'not found' });
   audit(req.user.id, 'agent_kill', { agent_id: req.params.id }, req.ip);
+  res.json({ ok: true });
+});
+
+// DELETE — hard-remove an agent row. Cascades to its tasks. Use after
+// the agent has confirmed shutdown (or for housekeeping of dormant rows).
+operatorAgentsRouter.delete('/:id', (req, res) => {
+  const own = db.prepare('SELECT id FROM agents WHERE id = ? AND user_id = ?')
+    .get(req.params.id, req.user.id);
+  if (!own) return res.status(404).json({ error: 'not found' });
+  db.prepare('DELETE FROM agent_tasks WHERE agent_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM agents WHERE id = ?').run(req.params.id);
+  audit(req.user.id, 'agent_delete', { agent_id: req.params.id }, req.ip);
   res.json({ ok: true });
 });
 
@@ -234,12 +296,11 @@ agentChannelRouter.post('/beacon', requireAgent, (req, res) => {
     WHERE id = ?
   `).run(req.agent.id);
 
-  // If the operator has killed this agent in the console, send a
-  // shutdown signal on this beacon. The agent loop checks `shutdown`
-  // in the response and exits cleanly. No further tasks are issued.
+  // If the operator killed this agent in the console, send a shutdown
+  // signal on this beacon. Agent loop exits cleanly. No tasks issued.
   if (req.agent.status === 'killed') {
     audit(null, 'agent_shutdown_signal_sent',
-      { agent_id: req.agent.id }, req.ip);
+      { agent_id: req.agent.id, reason: 'killed_by_operator' }, req.ip);
     return res.json({
       server_time: new Date().toISOString(),
       beacon_interval_sec: 30,
@@ -247,6 +308,14 @@ agentChannelRouter.post('/beacon', requireAgent, (req, res) => {
       reason: 'killed_by_operator',
       tasks: [],
     });
+  }
+
+  // A dormant-sweeper-marked agent that beacons again is alive — flip
+  // it back to active. Tasks then flow normally on this same beacon.
+  if (req.agent.status === 'dormant') {
+    db.prepare("UPDATE agents SET status = 'active' WHERE id = ?").run(req.agent.id);
+    audit(null, 'agent_revived_from_dormant',
+      { agent_id: req.agent.id }, req.ip);
   }
 
   // Pull pending tasks for active agents only.

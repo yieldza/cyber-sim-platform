@@ -252,6 +252,99 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.7.0 — 2026-05-24
+
+**Coverage export + SIEM webhook + dormant-agent housekeeping.**
+
+#### Coverage tab
+
+- **Export CSV / JSON** — full matrix (per technique: status, worker
+  runs, agent runs, EDR product, alert name, notes, marked-at).
+  Same numbers shown in the dashboard, so the export matches what
+  operators see on screen.
+- **Webhook** — new endpoint `POST /coverage-webhook/alert` lets your
+  SIEM (Cortex XSIAM / Splunk / Sentinel / …) push alert events back
+  to CSP. The matched `technique_id` is auto-marked *detected* with
+  the alert name + notes attached. Authenticated by a per-user secret
+  shown **once** at rotation time (header `X-CSP-Webhook-Token`).
+  Every hit is logged in `coverage_webhook_events` for debugging.
+
+  Example SIEM body:
+  ```json
+  {
+    "technique_id": "T1059.001",
+    "alert_name":   "Suspicious PowerShell download cradle",
+    "severity":     "high",
+    "source":       "xsiam",
+    "notes":        "BTP rule 12345 fired with score 9.2"
+  }
+  ```
+
+#### Agents tab — dormant housekeeping
+
+Before v0.7.0, agents that went silent (host shut down, network cut,
+process killed locally) showed up as `active` forever because nothing
+ever notified the server. Now:
+
+- A background sweeper marks agents `dormant` once `last_seen` is older
+  than `AGENT_DORMANT_HOURS` (default `24h`). Runs at startup + every
+  `AGENT_SWEEP_INTERVAL_MIN` minutes (default `60m`).
+- A dormant agent that beacons in is auto-revived back to `active` on
+  that same beacon — no manual intervention.
+- New UI buttons on Agents tab: **Run dormant sweep** (manual trigger)
+  and **Cleanup dormant** (hard-delete dormant rows + their tasks).
+- New per-row **delete** button removes an agent and all its tasks
+  (use for stale rows you no longer want to see).
+
+New endpoints (all JWT-auth):
+- `GET  /api/agents/dormant-config`
+- `POST /api/agents/sweep-dormant   {hours?}`
+- `POST /api/agents/cleanup-dormant`
+- `DELETE /api/agents/:id`
+
+#### Config
+
+```bash
+AGENT_DORMANT_HOURS=24
+AGENT_SWEEP_INTERVAL_MIN=60
+```
+
+#### Schema migrations (automatic on startup)
+
+- `coverage_results.source` — distinguishes manual vs webhook markings
+- New tables: `coverage_webhook_secrets`, `coverage_webhook_events`
+- New agent status value: `dormant` (additive — existing rows untouched)
+
+Image tags published to Docker Hub (multiarch `linux/amd64` + `linux/arm64`):
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.7.0
+docker.io/124000pk/yieldpk:csp-worker-0.7.0
+docker.io/124000pk/yieldpk:csp-web-0.7.0
+```
+
+### How to update from v0.6.0 to v0.7.0
+
+```bash
+cd /path/to/csp
+sed -i.bak \
+  -e 's/^TAG_API=.*/TAG_API=csp-api-0.7.0/' \
+  -e 's/^TAG_WORKER=.*/TAG_WORKER=csp-worker-0.7.0/' \
+  -e 's/^TAG_WEB=.*/TAG_WEB=csp-web-0.7.0/' \
+  .env
+
+# Optional: tune dormant thresholds
+grep -q '^AGENT_DORMANT_HOURS=' .env || cat >>.env <<'EOF'
+
+AGENT_DORMANT_HOURS=24
+AGENT_SWEEP_INTERVAL_MIN=60
+EOF
+
+docker compose pull && docker compose up -d
+# Coverage tab now has Export CSV/JSON + webhook setup.
+# Agents tab now shows dormant rows + cleanup buttons.
+```
+
 ### v0.6.0 — 2026-05-24
 
 **Detection Rule Generator + agent kill bug fix + unit tests.**
