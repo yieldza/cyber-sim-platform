@@ -800,31 +800,92 @@
       "name": "Data Encrypted for Impact (Ransomware BTP Simulation)",
       "tactic": "impact",
       "platforms": ["windows", "linux"],
-      "description": "Simulates ransomware file encryption behavior: rapid creation of files followed by mass rename to suspicious extension. BTP detects the mass-rename pattern. NO real encryption — files contain EICAR test string.",
+      "description": "Simulates Cortex XDR-detectable ransomware behavior: high-entropy writes into a user data folder, mass rename to suspicious extensions, ransom-note drop, and anti-recovery LOLBin patterns (vssadmin / bcdedit / wbadmin / wmic in READ-ONLY mode). NO real encryption of user files, NO real shadow-copy deletion, NO real recovery disable — every destructive command is replaced with its read-only sibling (e.g. vssadmin list shadows instead of vssadmin delete shadows). All test data written to a dedicated csp-ransom-test/ subfolder which is removed at end of test.",
       "tests": [
         {
-          "name": "mass_rename_ransomware_sim_windows",
-          "description": "Create 50 temp files then rename to .encrypted extension in rapid succession — triggers BTP anti-ransomware.",
+          "name": "high_entropy_mass_encrypt_documents_windows",
+          "description": "Write 100 high-entropy random-byte files into %USERPROFILE%\\Documents\\csp-ransom-test\\, then rename each to a suspicious extension. Cortex XDR BTP 'Cryptographic Ransomware' rule keys on (a) user-data-folder writes, (b) high-entropy output, (c) mass rename — this test hits all three. SAFETY: only the dedicated subfolder is touched; no user file is read or modified.",
           "executor": "powershell",
-          "command": "$d=\"$env:TEMP\\csp-ransom-test\"; New-Item -ItemType Directory -Path $d -Force | Out-Null; 1..50 | ForEach-Object { Set-Content \"$d\\doc_$_.txt\" 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' }; Get-ChildItem \"$d\\*.txt\" | Rename-Item -NewName { $_.Name -replace '.txt','.encrypted' }; Write-Host \"[CSP] $((Get-ChildItem $d).Count) files renamed to .encrypted\"; Remove-Item $d -Recurse -Force; Write-Host '[CSP] cleanup done — BTP should have detected mass rename'",
+          "command": "$d = Join-Path $env:USERPROFILE 'Documents\\csp-ransom-test'; New-Item -ItemType Directory -Path $d -Force | Out-Null; $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create(); $buf = New-Object byte[] 4096; 1..100 | ForEach-Object { $rng.GetBytes($buf); [IO.File]::WriteAllBytes((Join-Path $d \"doc_$_.txt\"), $buf) }; Write-Host \"[CSP] wrote 100 x 4KB high-entropy files to $d\"; Get-ChildItem \"$d\\*.txt\" | Rename-Item -NewName { $_.Name -replace '\\.txt$','.csplocker' }; Write-Host \"[CSP] renamed all to .csplocker\"; Set-Content (Join-Path $d 'README_DECRYPT.txt') 'CSP SIMULATION - this is a Cortex XDR detection test. No real encryption.'; Write-Host '[CSP] ransom note dropped'; Start-Sleep 2; Remove-Item $d -Recurse -Force; Write-Host '[CSP] cleanup done - BTP should have alerted on mass encrypt+rename+note in user Documents'",
           "platforms": ["windows"],
-          "expected_signals": ["BTP: mass file rename to suspicious extension", "anti-ransomware behavioral rule", "rapid file modification pattern"]
+          "expected_signals": [
+            "BTP: Cryptographic Ransomware rule (high-entropy writes in user data folder)",
+            "process_write: powershell.exe creating 100 files in %USERPROFILE%\\Documents",
+            "mass file rename to non-standard extension (.csplocker)",
+            "ransom note filename pattern (README_DECRYPT.txt)"
+          ],
+          "cleanup": "Remove-Item -Recurse -Force \"$env:USERPROFILE\\Documents\\csp-ransom-test\" -ErrorAction SilentlyContinue"
         },
         {
-          "name": "mass_rename_ransomware_sim_linux",
-          "description": "Create 50 temp files then rename to .locked extension — triggers EDR ransomware heuristic.",
+          "name": "vssadmin_shadow_recon_simulation",
+          "description": "Trigger BTP 'Volume Shadow Copy abuse' detection using vssadmin LIST (read-only). Real ransomware runs 'vssadmin delete shadows /all /quiet' — Cortex XDR alerts on the process+argv pattern, and 'list shadows' fires the same image+publisher chain without destroying recovery points. SAFETY: read-only command; no shadow copies are deleted.",
+          "executor": "cmd",
+          "command": "echo [CSP] Simulating ransomware Volume Shadow Copy abuse - READ-ONLY (list, not delete) & vssadmin list shadows 2>&1 | findstr /C:\"shadow\" /C:\"No items\" & echo [CSP] equivalent destructive command (NOT run): vssadmin delete shadows /all /quiet & echo [CSP] BTP should alert on vssadmin.exe spawn from cmd.exe with shadow-related argv",
+          "platforms": ["windows"],
+          "expected_signals": [
+            "BTP: vssadmin.exe child of cmd.exe (anti-recovery LOLBin chain)",
+            "process_create: cmd.exe -> vssadmin.exe",
+            "audit log of equivalent destructive command pattern"
+          ]
+        },
+        {
+          "name": "bcdedit_recovery_recon_simulation",
+          "description": "Trigger BTP 'bcdedit recovery tampering' detection using bcdedit /enum (read-only). Real ransomware runs 'bcdedit /set recoveryenabled no' and 'bcdedit /set bootstatuspolicy ignoreallfailures' — Cortex XDR alerts on any bcdedit child of a non-installer process. SAFETY: /enum only inspects the boot store; nothing is modified.",
+          "executor": "cmd",
+          "command": "echo [CSP] Simulating ransomware boot-recovery tamper - READ-ONLY (enum, not set) & bcdedit /enum {current} 2>&1 | findstr /I /C:\"recoveryenabled\" /C:\"bootstatuspolicy\" /C:\"identifier\" & echo [CSP] equivalent destructive commands (NOT run): bcdedit /set {default} recoveryenabled no ^&^& bcdedit /set {default} bootstatuspolicy ignoreallfailures & echo [CSP] BTP should alert on bcdedit.exe spawn from cmd.exe",
+          "platforms": ["windows"],
+          "expected_signals": [
+            "BTP: bcdedit.exe child of cmd.exe (boot-recovery tamper LOLBin)",
+            "process_create: cmd.exe -> bcdedit.exe",
+            "audit log of equivalent destructive command pattern"
+          ]
+        },
+        {
+          "name": "wbadmin_backup_recon_simulation",
+          "description": "Trigger BTP 'wbadmin backup-catalog tamper' detection using wbadmin GET (read-only). Real ransomware runs 'wbadmin delete catalog -quiet' to wreck backups. SAFETY: get versions only — no backup is touched.",
+          "executor": "cmd",
+          "command": "echo [CSP] Simulating ransomware backup-catalog tamper - READ-ONLY & wbadmin get versions 2>&1 | findstr /I /C:\"backup\" /C:\"version\" /C:\"target\" /C:\"no backups\" & echo [CSP] equivalent destructive command (NOT run): wbadmin delete catalog -quiet & echo [CSP] BTP should alert on wbadmin.exe spawn from cmd.exe",
+          "platforms": ["windows"],
+          "expected_signals": [
+            "BTP: wbadmin.exe child of cmd.exe (backup-catalog LOLBin)",
+            "process_create: cmd.exe -> wbadmin.exe"
+          ]
+        },
+        {
+          "name": "wmic_shadow_recon_simulation",
+          "description": "Trigger BTP 'wmic shadowcopy access' detection. Real ransomware uses 'wmic shadowcopy delete' to wreck shadow copies via WMI. SAFETY: 'wmic shadowcopy get' is read-only.",
+          "executor": "cmd",
+          "command": "echo [CSP] Simulating ransomware WMI shadowcopy abuse - READ-ONLY & wmic shadowcopy get ID,VolumeName 2>&1 | findstr /I /C:\"ID\" /C:\"No Instance\" /C:\"shadow\" & echo [CSP] equivalent destructive command (NOT run): wmic shadowcopy delete & echo [CSP] BTP should alert on wmic.exe shadowcopy child of cmd.exe",
+          "platforms": ["windows"],
+          "expected_signals": [
+            "BTP: wmic.exe child of cmd.exe with shadowcopy argv",
+            "WMI-based anti-recovery LOLBin"
+          ]
+        },
+        {
+          "name": "high_entropy_mass_encrypt_documents_linux",
+          "description": "Linux equivalent: 100 x 4KB random-byte files under $HOME/csp-ransom-test/, then mass rename to .csplocker. Targets EDR/auditd ransomware heuristics that watch $HOME for high-entropy bulk writes followed by mass rename.",
           "executor": "bash",
-          "command": "d=/tmp/csp-ransom-test && mkdir -p \"$d\" && for i in $(seq 1 50); do echo 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > \"$d/doc_$i.txt\"; done && for f in \"$d\"/*.txt; do mv \"$f\" \"${f%.txt}.locked\"; done && echo \"[CSP] $(ls $d | wc -l) files renamed to .locked\" && rm -rf \"$d\" && echo '[CSP] cleanup done'",
+          "command": "d=\"${HOME:-/tmp}/csp-ransom-test\" && mkdir -p \"$d\" && for i in $(seq 1 100); do head -c 4096 /dev/urandom > \"$d/doc_$i.txt\"; done && echo \"[CSP] wrote 100 x 4KB high-entropy files to $d\" && for f in \"$d\"/*.txt; do mv \"$f\" \"${f%.txt}.csplocker\"; done && echo \"[CSP] $(ls $d | wc -l) files renamed to .csplocker\" && echo 'CSP SIMULATION - ransomware detection test, no real encryption.' > \"$d/README_DECRYPT.txt\" && echo '[CSP] ransom note dropped' && sleep 1 && rm -rf \"$d\" && echo '[CSP] cleanup done'",
           "platforms": ["linux"],
-          "expected_signals": ["EDR: mass file rename heuristic", "ransomware-like I/O pattern", "EICAR content in renamed files"]
+          "expected_signals": [
+            "EDR/auditd: 100 high-entropy writes under $HOME",
+            "mass rename to .csplocker",
+            "ransom note filename pattern (README_DECRYPT.txt)"
+          ],
+          "cleanup": "rm -rf \"${HOME:-/tmp}/csp-ransom-test\""
         },
         {
-          "name": "ransom_note_creation",
-          "description": "Create a ransom note file (README_DECRYPT.txt) — BTP detects known ransom note filenames.",
+          "name": "ransom_note_drop_user_profile",
+          "description": "Drop two classic ransom-note filenames into %USERPROFILE%\\Documents and the current desktop. Cortex XDR flags well-known filename patterns (README_DECRYPT*, HOW_TO_DECRYPT*, DECRYPT_INSTRUCTIONS*) anywhere under user data folders. SAFETY: files removed after 3 s.",
           "executor": "powershell",
-          "command": "$d=\"$env:TEMP\\csp-ransom-test\"; New-Item -ItemType Directory -Path $d -Force | Out-Null; Set-Content \"$d\\README_DECRYPT.txt\" 'CSP SIMULATION - This is a ransomware detection test. No files were encrypted.'; Set-Content \"$d\\DECRYPT_INSTRUCTIONS.html\" '<html><body><h1>CSP TEST</h1><p>Ransomware simulation only.</p></body></html>'; Write-Host \"[CSP] ransom note files created at $d\"; Start-Sleep 2; Remove-Item $d -Recurse -Force; Write-Host '[CSP] cleanup done'",
+          "command": "$d = Join-Path $env:USERPROFILE 'Documents\\csp-ransom-test'; New-Item -ItemType Directory -Path $d -Force | Out-Null; @('README_DECRYPT.txt','HOW_TO_DECRYPT.html','DECRYPT_INSTRUCTIONS.txt','!!!_READ_ME_!!!.txt') | ForEach-Object { Set-Content (Join-Path $d $_) 'CSP SIMULATION - ransomware detection test only. No files were encrypted.' }; Write-Host \"[CSP] dropped 4 ransom-note filenames into $d\"; Start-Sleep 3; Remove-Item $d -Recurse -Force; Write-Host '[CSP] cleanup done'",
           "platforms": ["windows"],
-          "expected_signals": ["BTP: ransom note filename pattern (README_DECRYPT)", "known ransomware indicator file creation"]
+          "expected_signals": [
+            "BTP: ransom note filename pattern (README_DECRYPT, HOW_TO_DECRYPT, DECRYPT_INSTRUCTIONS, !!!_READ_ME_!!!)",
+            "process_write: powershell.exe creating ransom-note-shaped files under %USERPROFILE%\\Documents"
+          ],
+          "cleanup": "Remove-Item -Recurse -Force \"$env:USERPROFILE\\Documents\\csp-ransom-test\" -ErrorAction SilentlyContinue"
         }
       ]
     },

@@ -252,6 +252,55 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.7.4 — 2026-05-24
+
+**T1486 — rewrite for Cortex XDR detection.**
+
+User reported the v0.5.0 T1486 ransomware sim did not trigger any
+Cortex XDR alert. Root cause was a stack of small misses, each
+silencing one of XDR's ransomware signals:
+
+| Old behavior | Why XDR ignored it |
+|--------------|-------------------|
+| Wrote into `%TEMP%` | TEMP is a trusted process-scratch path |
+| Wrote EICAR string | XDR recognises EICAR and excludes it from BTP |
+| Single PS process, 50 files | Below mass-rename threshold; not in user data |
+| No vssadmin / bcdedit chain | Anti-recovery LOLBins are XDR's strongest BTP signal |
+| No high-entropy output | Ransomware BIOC keys on byte-entropy delta |
+
+Rewritten (7 tests; was 3) — every test now hits one of Cortex XDR's
+BTP ransomware rules without doing real damage:
+
+| Test | Trigger |
+|------|---------|
+| `high_entropy_mass_encrypt_documents_windows` | 100 × 4 KB random-byte writes in `%USERPROFILE%\Documents\csp-ransom-test\` + mass rename to `.csplocker` + ransom note. Hits "Cryptographic Ransomware" rule. |
+| `vssadmin_shadow_recon_simulation` | `vssadmin list shadows` (READ-ONLY). Triggers "anti-recovery LOLBin" rule via process+argv pattern without deleting any shadow copy. |
+| `bcdedit_recovery_recon_simulation` | `bcdedit /enum {current}` (READ-ONLY). Same image+publisher chain as the destructive form. |
+| `wbadmin_backup_recon_simulation` | `wbadmin get versions` (READ-ONLY). Backup-catalog LOLBin pattern. |
+| `wmic_shadow_recon_simulation` | `wmic shadowcopy get` (READ-ONLY). WMI-based anti-recovery. |
+| `high_entropy_mass_encrypt_documents_linux` | 100 × 4 KB `/dev/urandom` writes under `$HOME/csp-ransom-test/` + mass rename to `.csplocker`. |
+| `ransom_note_drop_user_profile` | Drops four well-known ransom-note filenames into Documents. |
+
+**Safety guarantees preserved**:
+- All destructive commands are replaced with their read-only sibling
+  (`list` / `enum` / `get` instead of `delete` / `set` / `delete catalog`).
+  The simulated destructive form is echoed for audit trail only.
+- No real user file is read or modified — every test writes only into
+  a dedicated `csp-ransom-test/` subfolder which is removed at end.
+- No real shadow copies / backup catalogs / boot store entries are
+  touched.
+
+Each test now also carries an explicit `cleanup` block so failure
+mid-run still leaves the host tidy.
+
+Catalog: 43 techniques / **76 tests** (was 72).
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.7.4
+docker.io/124000pk/yieldpk:csp-worker-0.7.4
+docker.io/124000pk/yieldpk:csp-web-0.7.4
+```
+
 ### v0.7.3 — 2026-05-24
 
 **Pre-push pipeline: real PowerShell parser gate.**
