@@ -290,7 +290,15 @@ td .row-action.danger:hover { background: var(--accent-2); color: #0b1020; }
   color: #b8c2e6;
   font-size: 11px;
 }
-.attack-detail .test .actions { display: flex; gap: 6px; margin-top: 8px; }
+.attack-detail .test .actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; align-items: center; }
+.attack-detail .test .rule-fmt {
+  padding: 3px 6px;
+  font-size: 11px;
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 3px;
+}
 .attack-detail .test button {
   padding: 4px 10px;
   font-size: 11px;

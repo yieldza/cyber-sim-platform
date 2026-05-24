@@ -225,15 +225,31 @@ agentChannelRouter.post('/register', (req, res) => {
 });
 
 agentChannelRouter.post('/beacon', requireAgent, (req, res) => {
-  const updates = db.prepare(`
+  // Always bump beacon_count + last_seen so operators can confirm the
+  // agent process is still alive even up to its final shutdown beacon.
+  db.prepare(`
     UPDATE agents
     SET last_seen = datetime('now'),
         beacon_count = beacon_count + 1
     WHERE id = ?
-  `);
-  updates.run(req.agent.id);
+  `).run(req.agent.id);
 
-  // Pull pending tasks
+  // If the operator has killed this agent in the console, send a
+  // shutdown signal on this beacon. The agent loop checks `shutdown`
+  // in the response and exits cleanly. No further tasks are issued.
+  if (req.agent.status === 'killed') {
+    audit(null, 'agent_shutdown_signal_sent',
+      { agent_id: req.agent.id }, req.ip);
+    return res.json({
+      server_time: new Date().toISOString(),
+      beacon_interval_sec: 30,
+      shutdown: true,
+      reason: 'killed_by_operator',
+      tasks: [],
+    });
+  }
+
+  // Pull pending tasks for active agents only.
   const tasks = db.prepare(`
     SELECT id, technique_id, test_name, executor, command, cleanup, timeout_sec
     FROM agent_tasks
@@ -250,6 +266,7 @@ agentChannelRouter.post('/beacon', requireAgent, (req, res) => {
   res.json({
     server_time: new Date().toISOString(),
     beacon_interval_sec: 30,
+    shutdown: false,
     tasks,
   });
 });

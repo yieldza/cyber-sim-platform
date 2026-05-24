@@ -252,6 +252,87 @@ curl -s -X POST http://localhost:8080/api/agents/<agent_id>/tasks \
 
 ## Changelog
 
+### v0.6.0 — 2026-05-24
+
+**Detection Rule Generator + agent kill bug fix + unit tests.**
+
+#### Approach B Phase 1 — Detection Rule Generator
+
+Every catalog test can now be exported as a starter detection rule in
+three formats — operators paste these into their detection backend and
+tune.
+
+| Format | Target backend |
+|--------|----------------|
+| **XQL** | Cortex XSIAM › Detection Rules › Custom rules |
+| **Sigma** | Generic — convert with `sigmac` / `pySigma` to Splunk / Elastic / Sentinel |
+| **SPL** | Splunk › Save As › Alert |
+
+UI: ATT&CK tab now shows a rule-format dropdown + *Get detection rule*
+button next to *Run on worker* / *Download script* for each test.
+The generated rule is shown inline and downloaded as a file.
+
+New worker module: `worker/app/techniques/detection_rules.py`.
+New endpoints:
+- Worker: `POST /technique/rule`
+- API:    `POST /api/techniques/:id/rule`
+
+#### Agent kill bug fix
+
+Before v0.6.0, *Kill* in the Agents tab only set `status='killed'` in
+the database — the agent kept beaconing forever because nothing in the
+beacon flow ever told it to stop. Fixed in three places:
+
+1. **Server** (`api/src/routes/agents.js` `/beacon`): if `req.agent.status === 'killed'`,
+   the beacon response now includes `shutdown: true` and `reason:'killed_by_operator'`.
+2. **Server** (`api/src/services/agentAuth.js` `requireAgent`): killed agents
+   still pass auth so the beacon endpoint can hand them the shutdown signal;
+   only `status NOT IN ('active','killed')` is treated as unauthenticated.
+3. **All three reference agents** (Python, PowerShell, C#) check for `shutdown:true`
+   in the beacon response and `return 0` / `exit 0` cleanly. They also
+   bail out after 5 consecutive 401s to handle the case where the agent
+   row has been deleted server-side.
+
+#### Unit tests
+
+| Layer | Tool | Coverage |
+|-------|------|----------|
+| Worker | `pytest` | 40 tests — generators (EICAR-presence + structural sanity), hash mutator, ATT&CK catalog, technique runner, detection rule generator |
+| API | `node --test` | bcrypt round-trip + agent secret generation |
+| End-to-end | `scripts/smoke-e2e.sh` | curl-based: login → generate → run → rule → enroll-token |
+
+Run:
+```bash
+cd worker && python3 -m pytest tests/         # all worker tests
+cd api    && npm test                          # API helper tests
+bash scripts/smoke-e2e.sh                      # full stack smoke (requires docker compose up)
+```
+
+Image tags published to Docker Hub (multiarch `linux/amd64` + `linux/arm64`):
+
+```
+docker.io/124000pk/yieldpk:csp-api-0.6.0
+docker.io/124000pk/yieldpk:csp-worker-0.6.0
+docker.io/124000pk/yieldpk:csp-web-0.6.0
+```
+
+### How to update from v0.5.x to v0.6.0
+
+```bash
+cd /path/to/csp
+sed -i.bak \
+  -e 's/^TAG_API=.*/TAG_API=csp-api-0.6.0/' \
+  -e 's/^TAG_WORKER=.*/TAG_WORKER=csp-worker-0.6.0/' \
+  -e 's/^TAG_WEB=.*/TAG_WEB=csp-web-0.6.0/' \
+  .env
+
+docker compose pull && docker compose up -d
+# ATT&CK tab now shows a rule-format dropdown + "Get detection rule" button.
+# Kill on Agents tab now actually stops the agent.
+```
+
+No DB migration.
+
 ### v0.5.0 — 2026-05-16
 
 **BTP Scenario Pack + Coverage Matrix** — major expansion targeting Cortex

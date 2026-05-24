@@ -412,6 +412,12 @@ function renderDetail(t) {
         <div class="actions">
           ${tt.runnable_here ? `<button data-action="run" data-tech="${t.id}" data-test="${tt.name}">Run on worker</button>` : ''}
           <button class="secondary" data-action="script" data-tech="${t.id}" data-test="${tt.name}">Download script</button>
+          <select data-rule-fmt="${t.id}::${tt.name}" class="rule-fmt">
+            <option value="xql">XQL (Cortex XSIAM)</option>
+            <option value="sigma">Sigma</option>
+            <option value="spl">Splunk SPL</option>
+          </select>
+          <button class="secondary" data-action="rule" data-tech="${t.id}" data-test="${tt.name}">Get detection rule</button>
         </div>
       </div>
     `).join('')}
@@ -421,6 +427,11 @@ function renderDetail(t) {
       const action = b.dataset.action;
       if (action === 'run') runTechnique(b.dataset.tech, b.dataset.test);
       else if (action === 'script') downloadScript(b.dataset.tech, b.dataset.test);
+      else if (action === 'rule') {
+        const sel = d.querySelector(`select[data-rule-fmt="${b.dataset.tech}::${b.dataset.test}"]`);
+        const fmt = sel ? sel.value : 'xql';
+        generateDetectionRule(b.dataset.tech, b.dataset.test, fmt);
+      }
     };
   });
 }
@@ -461,6 +472,28 @@ async function downloadScript(techId, testName) {
     a.href = url; a.download = res.filename; a.click();
     URL.revokeObjectURL(url);
     $('#attackResult').textContent = `downloaded ${res.filename} (${res.size} bytes)`;
+  } catch (err) {
+    $('#attackResult').textContent = 'ERR: ' + err.message;
+  }
+}
+
+async function generateDetectionRule(techId, testName, ruleFormat) {
+  $('#attackResult').textContent = `generating ${ruleFormat.toUpperCase()} rule for ${techId} / ${testName} ...`;
+  try {
+    const res = await api(`/techniques/${encodeURIComponent(techId)}/rule`, {
+      method: 'POST', body: { test_name: testName, rule_format: ruleFormat },
+    });
+    const ext = { xql: 'xql', sigma: 'yml', spl: 'spl' }[ruleFormat] || 'txt';
+    const filename = `${techId}_${testName}.${ext}`;
+    // Show rule inline + offer a copy/download.
+    $('#attackResult').textContent =
+      `${res.title}\n${res.notes}\n\n${'─'.repeat(60)}\n${res.rule}\n${'─'.repeat(60)}\n` +
+      `\n[downloading ${filename} — paste into your detection backend]`;
+    const blob = new Blob([res.rule + '\n'], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
   } catch (err) {
     $('#attackResult').textContent = 'ERR: ' + err.message;
   }
@@ -539,7 +572,12 @@ async function refreshAgents() {
 }
 
 async function killAgent(id) {
-  if (!confirm(`kill agent ${id}?`)) return;
+  if (!confirm(
+    `Kill agent ${id}?\n\n` +
+    `The agent will receive a shutdown signal on its next beacon ` +
+    `(up to ~30 s) and exit cleanly. No new tasks will be queued ` +
+    `until that beacon arrives.`
+  )) return;
   try {
     await api(`/agents/${id}/kill`, { method: 'POST' });
     refreshAgents();

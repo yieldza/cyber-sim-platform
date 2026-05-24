@@ -79,11 +79,26 @@ internal static class CspAgent
             ["x-agent-secret"] = agentSecret,
         };
 
+        const int AuthFailBackoff = 5;
+        int authFails = 0;
         while (true)
         {
             try
             {
                 var resp = await PostAsync(opts.C2, "/agent-c2/beacon", new {}, headers);
+                authFails = 0;  // reset on success
+
+                // Operator killed this agent from the console — exit cleanly.
+                if (resp.HasValue && resp.Value.TryGetProperty("shutdown", out var sh)
+                    && sh.ValueKind == JsonValueKind.True)
+                {
+                    string reason = "shutdown_signal";
+                    if (resp.Value.TryGetProperty("reason", out var rs) && rs.ValueKind == JsonValueKind.String)
+                        reason = rs.GetString() ?? reason;
+                    Log($"shutdown signal received from C2 (reason={reason}) — exiting");
+                    return 0;
+                }
+
                 if (resp.HasValue && resp.Value.TryGetProperty("tasks", out var tasks)
                     && tasks.ValueKind == JsonValueKind.Array)
                 {
@@ -108,6 +123,16 @@ internal static class CspAgent
             catch (Exception e)
             {
                 Log("loop error: " + e.Message, "WARN");
+                // Repeated 401s mean the agent has been removed from C2 — bail out.
+                if (e.Message.Contains("HTTP 401"))
+                {
+                    authFails++;
+                    if (authFails >= AuthFailBackoff)
+                    {
+                        Log($"repeated 401 from C2 ({authFails}) — agent appears revoked, exiting");
+                        return 0;
+                    }
+                }
             }
 
             if (opts.Once) break;

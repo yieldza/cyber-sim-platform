@@ -166,11 +166,22 @@ if ($AgentId -and $AgentSecret) {
 }
 
 $Hdr = @{'x-agent-id'=$id; 'x-agent-secret'=$secret}
+$AuthFailBackoff = 5
+$AuthFails = 0
 
 while ($true) {
   try {
     if ($Verbose) { Write-Log 'beacon...' 'DEBUG' }
     $resp = Invoke-C2 'agent-c2/beacon' @{} $Hdr
+    $AuthFails = 0  # reset on any successful beacon
+
+    # Operator killed this agent from the console — exit cleanly.
+    if ($resp.shutdown) {
+      $reason = if ($resp.reason) { $resp.reason } else { 'shutdown_signal' }
+      Write-Log "shutdown signal received from C2 (reason=$reason) — exiting"
+      exit 0
+    }
+
     if ($resp.tasks -and $resp.tasks.Count -gt 0) {
       Write-Log ("got {0} task(s)" -f $resp.tasks.Count)
       foreach ($t in $resp.tasks) {
@@ -181,7 +192,16 @@ while ($true) {
       }
     }
   } catch {
-    Write-Log "loop error: $($_.Exception.Message)" 'WARN'
+    $msg = $_.Exception.Message
+    Write-Log "loop error: $msg" 'WARN'
+    # Repeated 401s mean the operator has removed this agent — bail out.
+    if ($msg -match '401' -or $msg -match 'Unauthorized') {
+      $AuthFails++
+      if ($AuthFails -ge $AuthFailBackoff) {
+        Write-Log "repeated 401 from C2 ($AuthFails) — agent appears revoked, exiting"
+        exit 0
+      }
+    }
   }
   if ($Once) { break }
   Start-Sleep -Seconds $interval

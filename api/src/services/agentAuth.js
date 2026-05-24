@@ -42,14 +42,22 @@ export function verifyAgentSecret(secret, hash) {
   }
 }
 
-/** Express middleware — agent identifies via X-Agent-Id + X-Agent-Secret. */
+/** Express middleware — agent identifies via X-Agent-Id + X-Agent-Secret.
+ *
+ * Killed agents pass auth so the /beacon handler can hand them the
+ * shutdown signal in the next beacon response. The handler inspects
+ * req.agent.status and returns {shutdown:true} for killed agents;
+ * agents then exit cleanly. Any other status is treated as unauthenticated.
+ */
 export function requireAgent(req, res, next) {
   const id = req.headers['x-agent-id'];
   const secret = req.headers['x-agent-secret'];
   if (!id || !secret) return res.status(401).json({ error: 'agent credentials required' });
   let agent;
   try {
-    agent = db.prepare('SELECT * FROM agents WHERE id = ? AND status = ?').get(id, 'active');
+    agent = db.prepare(
+      "SELECT * FROM agents WHERE id = ? AND status IN ('active','killed')"
+    ).get(id);
   } catch (err) {
     console.error(`[requireAgent] db error for agent_id=${id}: ${err.message}`);
     return res.status(500).json({ error: 'auth check failed', detail: err.message });

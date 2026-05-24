@@ -86,6 +86,29 @@ techniquesRouter.post('/:id/script', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ----- detection rule (XQL / Sigma / SPL) -----
+techniquesRouter.post('/:id/rule', async (req, res, next) => {
+  try {
+    const { test_name, rule_format } = req.body || {};
+    if (!test_name) return res.status(400).json({ error: 'test_name required' });
+    const fmt = (rule_format || 'xql').toLowerCase();
+    if (!['xql', 'sigma', 'spl'].includes(fmt)) {
+      return res.status(400).json({ error: 'rule_format must be xql | sigma | spl' });
+    }
+    const data = await callWorker('/technique/rule', {
+      technique_id: req.params.id,
+      test_name,
+      rule_format: fmt,
+    });
+    audit(req.user.id, 'technique_rule', {
+      technique_id: req.params.id,
+      test_name,
+      rule_format: fmt,
+    }, req.ip);
+    res.json(data);
+  } catch (err) { next(err); }
+});
+
 // ----- run history -----
 runsRouter.get('/', (req, res) => {
   const rows = db.prepare(`

@@ -214,10 +214,20 @@ def main() -> int:
         return 2
 
     headers = {"x-agent-id": agent_id, "x-agent-secret": agent_secret}
+    AUTH_FAIL_BACKOFF = 5  # consecutive 401s before giving up
+    auth_fails = 0
     while True:
         try:
             log.debug("beacon...")
             resp = _http(f"{c2}/agent-c2/beacon", {}, headers)
+            auth_fails = 0  # reset on success
+
+            # Operator killed this agent from the console — exit cleanly.
+            if resp.get("shutdown"):
+                reason = resp.get("reason", "shutdown_signal")
+                log.info("shutdown signal received from C2 (reason=%s) — exiting", reason)
+                return 0
+
             tasks = resp.get("tasks", [])
             if tasks:
                 log.info("got %d task(s)", len(tasks))
@@ -228,7 +238,16 @@ def main() -> int:
                 log.info(" → status=%s exit=%s dur=%sms",
                          result["status"], result["exit_code"], result["duration_ms"])
         except RuntimeError as exc:
-            log.error("c2 error: %s", exc)
+            msg = str(exc)
+            log.error("c2 error: %s", msg)
+            # If the server rejects our credentials repeatedly the agent
+            # has likely been removed from the operator side — bail out.
+            if msg.startswith("http 401"):
+                auth_fails += 1
+                if auth_fails >= AUTH_FAIL_BACKOFF:
+                    log.info("repeated 401 from C2 (%d) — agent appears revoked, exiting",
+                             auth_fails)
+                    return 0
         except KeyboardInterrupt:
             log.info("interrupted, exiting")
             return 0

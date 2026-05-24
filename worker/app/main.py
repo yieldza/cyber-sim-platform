@@ -43,7 +43,9 @@ from .hash_mutator import (
 )
 from .techniques import (
     RUNNABLE_EXECUTORS,
+    SUPPORTED_RULE_FORMATS,
     SUPPORTED_SCRIPT_FORMATS,
+    generate_rule,
     generate_script,
     get_technique,
     list_techniques,
@@ -329,6 +331,33 @@ def technique_script(req: ScriptRequest) -> dict:
         "size": len(content),
         "data_b64": data_b64,
         "supported_formats": list(SUPPORTED_SCRIPT_FORMATS),
+    }
+
+
+# ---------- /technique/rule (detection rule generator) ----------
+class RuleRequest(BaseModel):
+    technique_id: str
+    test_name: str
+    rule_format: Literal["xql", "sigma", "spl"] = "xql"
+
+
+@app.post("/technique/rule", dependencies=[Depends(require_api_key)])
+def technique_rule(req: RuleRequest) -> dict:
+    try:
+        rule = generate_rule(req.technique_id, req.test_name, req.rule_format)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    return {
+        "technique_id": rule.technique_id,
+        "test_name": rule.test_name,
+        "rule_format": rule.rule_format,
+        "title": rule.title,
+        "rule": rule.rule,
+        "notes": rule.notes,
+        "supported_formats": list(SUPPORTED_RULE_FORMATS),
     }
 
 
